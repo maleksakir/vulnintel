@@ -1,12 +1,13 @@
 import type { RequestHandler } from './$types';
 import { getAdminHealth } from '$lib/server/queries/getAdminHealth';
 import { errorResponse } from '$lib/server/errorResponse';
+import { timingSafeEqual } from '$lib/server/auth';
 
 export const GET: RequestHandler = async ({ request, platform, locals }) => {
   const env = platform!.env;
   const authHeader = request.headers.get('Authorization') ?? '';
 
-  if (authHeader !== `Bearer ${env.ADMIN_BEARER}`) {
+  if (!timingSafeEqual(authHeader, `Bearer ${env.ADMIN_BEARER}`)) {
     return errorResponse('FORBIDDEN_NETWORK', 'Invalid or missing bearer token.', locals.cfRay, 403);
   }
 
