@@ -156,6 +156,26 @@ export async function applyKevPatch(
 ): Promise<void> {
   const t0 = Date.now();
 
+  const cur = await env.DB.prepare(
+    `SELECT kev_listed, kev_date_added, kev_due_date, kev_required_action
+     FROM cve_state WHERE cve_id = ?`,
+  ).bind(patch.cveId).first<{
+    kev_listed: number;
+    kev_date_added: number | null;
+    kev_due_date: number | null;
+    kev_required_action: string | null;
+  }>();
+
+  const unchanged =
+    cur?.kev_listed === 1 &&
+    cur.kev_date_added === patch.kevDateAdded &&
+    cur.kev_due_date === patch.kevDueDate &&
+    cur.kev_required_action === patch.kevRequiredAction;
+
+  if (unchanged) {
+    return;
+  }
+
   await env.DB.prepare(
     `INSERT INTO cve_state
        (cve_id, kev_listed, kev_date_added, kev_due_date, kev_required_action, state_updated_at)
@@ -222,6 +242,14 @@ export async function applyEpssPatch(
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
+  const cur = await env.DB.prepare(
+    `SELECT epss_score, epss_percentile FROM cve_state WHERE cve_id = ?`,
+  ).bind(patch.cveId).first<{ epss_score: number | null; epss_percentile: number | null }>();
+
+  if (cur?.epss_score === patch.epssScore && cur.epss_percentile === patch.epssPercentile) {
+    return;
+  }
+
   await env.DB.prepare(
     `INSERT INTO cve_state
        (cve_id, kev_listed, epss_score, epss_percentile, epss_updated_at, state_updated_at)
