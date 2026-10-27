@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ESNext"],
+    "types": ["@cloudflare/workers-types/2023-07-01"],
+    "paths": {
+      "@threat-lens/contracts": ["../../packages/contracts/src/index.ts"],
+      "@threat-lens/contracts/*": ["../../packages/contracts/src/*.ts"]
+    },
+    "outDir": "dist",
+    "noUnusedLocals": false
+  },
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

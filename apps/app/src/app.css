@@ -1,0 +1,626 @@
+/*
+ * ══════════════════════════════════════════════════════════════════════════════
+ *  Threat-Lens CVE Hub — Global Design Token Layer
+ *  apps/app/src/app.css
+ *
+ *  This file is the single source of truth for the visual language.
+ *  Rules:
+ *   • CSS custom properties ONLY at the :root / [data-theme] layer.
+ *   • No utility classes, no component styles — those live in scoped
+ *     <style> blocks or per-route stylesheets.
+ *   • The .skeleton utility class and the desktop-only banner are the
+ *     only global selectors permitted outside of the reset.
+ *   • Dark theme is toggled by [data-theme="dark"] on <html>.
+ *     The HTML template sets this attribute before paint; localStorage
+ *     persistence is wired in +layout.svelte via $effect.
+ *
+ *  Sections:
+ *   1. CSS Reset
+ *   2. Colour Scale (light + dark)
+ *   3. Typography Scale
+ *   4. Spacing Scale
+ *   5. Border Radii
+ *   6. Elevation / Shadow
+ *   7. Motion Curves
+ *   8. Z-Index Strata
+ *   9. Layout Geometry
+ *  10. Base Element Styles
+ *  11. Utility: .skeleton shimmer
+ *  12. Responsive: desktop-only banner
+ * ══════════════════════════════════════════════════════════════════════════════
+ */
+
+/* ── 1. CSS Reset ─────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  -moz-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  tab-size: 2;
+  scroll-behavior: smooth;
+}
+
+img,
+picture,
+video,
+canvas,
+svg {
+  display: block;
+  max-width: 100%;
+}
+
+input,
+button,
+textarea,
+select {
+  font: inherit;
+}
+
+p,
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  overflow-wrap: break-word;
+}
+
+/* ── 2. Colour Scale ──────────────────────────────────────────────────────── */
+/*
+ *  Hue anchors make it trivial to shift the entire palette by changing
+ *  one variable. Saturation and lightness are then dialled per token.
+ *
+ *  Convention:
+ *   --color-<role>           base interactive or text colour
+ *   --color-<role>-hover     :hover variant
+ *   --color-<role>-active    :active variant
+ *   --color-<role>-subtle    low-saturation fill for badges / chips
+ *   --color-<role>-border    hairline stroke matching the subtle fill
+ *   --color-<role>-text      readable text on a subtle fill background
+ */
+
+:root {
+  /* Palette hue anchors */
+  --hue-brand:   215;
+  --hue-danger:    5;
+  --hue-warning:  38;
+  --hue-success: 145;
+  --hue-neutral: 220;
+
+  /* ── Surfaces (light) */
+  --color-surface-base:    hsl(220, 20%, 98%);
+  --color-surface-raised:  hsl(220, 18%, 96%);
+  --color-surface-overlay: hsl(220, 16%, 93%);
+  --color-surface-sunken:  hsl(220, 20%, 91%);
+  --color-surface-invert:  hsl(222, 25%, 10%);
+
+  /* ── Text (light) */
+  --color-text-primary:   hsl(222, 22%,  8%);
+  --color-text-secondary: hsl(222, 14%, 35%);
+  --color-text-tertiary:  hsl(222, 10%, 55%);
+  --color-text-disabled:  hsl(222,  8%, 72%);
+  --color-text-invert:    hsl(220, 18%, 96%);
+  --color-text-on-accent: hsl(  0,  0%, 100%);
+
+  /* ── Brand / Primary (light) */
+  --color-brand-default: hsl(215, 80%, 48%);
+  --color-brand-hover:   hsl(215, 80%, 40%);
+  --color-brand-active:  hsl(215, 80%, 34%);
+  --color-brand-subtle:  hsl(215, 80%, 95%);
+  --color-brand-border:  hsl(215, 60%, 80%);
+  --color-brand-text:    hsl(215, 80%, 36%);
+
+  /* ── Severity — CRITICAL (light) */
+  --color-critical:        hsl(  5, 80%, 50%);
+  --color-critical-hover:  hsl(  5, 80%, 42%);
+  --color-critical-subtle: hsl(  5, 80%, 96%);
+  --color-critical-border: hsl(  5, 60%, 80%);
+  --color-critical-text:   hsl(  5, 80%, 36%);
+
+  /* ── Severity — HIGH (light) */
+  --color-high:        hsl( 22, 85%, 50%);
+  --color-high-hover:  hsl( 22, 85%, 42%);
+  --color-high-subtle: hsl( 22, 85%, 96%);
+  --color-high-border: hsl( 22, 65%, 78%);
+  --color-high-text:   hsl( 22, 80%, 34%);
+
+  /* ── Severity — MEDIUM (light) */
+  --color-medium:        hsl( 38, 88%, 44%);
+  --color-medium-hover:  hsl( 38, 88%, 37%);
+  --color-medium-subtle: hsl( 38, 88%, 96%);
+  --color-medium-border: hsl( 38, 70%, 76%);
+  --color-medium-text:   hsl( 38, 80%, 30%);
+
+  /* ── Severity — LOW (light) */
+  --color-low:        hsl(145, 55%, 38%);
+  --color-low-hover:  hsl(145, 55%, 31%);
+  --color-low-subtle: hsl(145, 55%, 95%);
+  --color-low-border: hsl(145, 40%, 75%);
+  --color-low-text:   hsl(145, 55%, 28%);
+
+  /* ── Severity — NONE (light) */
+  --color-none:        hsl(220, 10%, 58%);
+  --color-none-subtle: hsl(220, 10%, 96%);
+  --color-none-border: hsl(220, 10%, 82%);
+  --color-none-text:   hsl(220, 10%, 44%);
+
+  /* ── Status indicators (light) */
+  --color-status-green:        hsl(145, 55%, 38%);
+  --color-status-amber:        hsl( 38, 88%, 44%);
+  --color-status-red:          hsl(  5, 80%, 50%);
+  --color-status-green-subtle: hsl(145, 55%, 95%);
+  --color-status-amber-subtle: hsl( 38, 88%, 96%);
+  --color-status-red-subtle:   hsl(  5, 80%, 96%);
+
+  /* ── Threat-intelligence highlights (light) */
+  /* KEV (Known Exploited) — red family to signal active danger */
+  --color-kev:        hsl(  5, 80%, 50%);
+  --color-kev-subtle: hsl(  5, 80%, 96%);
+  --color-kev-text:   hsl(  5, 80%, 36%);
+  /* EPSS (Exploit Prediction) — violet to distinguish from KEV */
+  --color-epss:        hsl(280, 60%, 50%);
+  --color-epss-subtle: hsl(280, 60%, 96%);
+  --color-epss-text:   hsl(280, 60%, 36%);
+
+  /* ── Borders (light) */
+  --color-border-default: hsl(220, 14%, 88%);
+  --color-border-strong:  hsl(220, 14%, 76%);
+  --color-border-focus:   hsl(215, 80%, 48%);
+
+  /* ── Code / Monospace background (light) */
+  --color-code-bg: hsl(220, 16%, 93%);
+}
+
+/* ── Dark theme overrides ───────────────────────────────────────────────── */
+[data-theme="dark"] {
+  /* ── Surfaces (dark) */
+  --color-surface-base:    hsl(222, 22%,  9%);
+  --color-surface-raised:  hsl(222, 20%, 12%);
+  --color-surface-overlay: hsl(222, 18%, 16%);
+  --color-surface-sunken:  hsl(222, 24%,  7%);
+  --color-surface-invert:  hsl(220, 18%, 96%);
+
+  /* ── Text (dark) */
+  --color-text-primary:   hsl(218, 22%, 92%);
+  --color-text-secondary: hsl(218, 14%, 68%);
+  --color-text-tertiary:  hsl(218, 10%, 50%);
+  --color-text-disabled:  hsl(218,  8%, 36%);
+  --color-text-invert:    hsl(222, 22%,  9%);
+
+  /* ── Brand / Primary (dark) */
+  --color-brand-default: hsl(215, 80%, 60%);
+  --color-brand-hover:   hsl(215, 80%, 70%);
+  --color-brand-active:  hsl(215, 80%, 76%);
+  --color-brand-subtle:  hsl(215, 60%, 14%);
+  --color-brand-border:  hsl(215, 50%, 28%);
+  --color-brand-text:    hsl(215, 80%, 72%);
+
+  /* ── Severity — CRITICAL (dark) */
+  --color-critical:        hsl(  5, 80%, 62%);
+  --color-critical-hover:  hsl(  5, 80%, 70%);
+  --color-critical-subtle: hsl(  5, 60%, 12%);
+  --color-critical-border: hsl(  5, 50%, 26%);
+  --color-critical-text:   hsl(  5, 80%, 72%);
+
+  /* ── Severity — HIGH (dark) */
+  --color-high:        hsl( 22, 85%, 62%);
+  --color-high-hover:  hsl( 22, 85%, 70%);
+  --color-high-subtle: hsl( 22, 65%, 12%);
+  --color-high-border: hsl( 22, 55%, 26%);
+  --color-high-text:   hsl( 22, 80%, 72%);
+
+  /* ── Severity — MEDIUM (dark) */
+  --color-medium:        hsl( 38, 88%, 58%);
+  --color-medium-hover:  hsl( 38, 88%, 66%);
+  --color-medium-subtle: hsl( 38, 70%, 12%);
+  --color-medium-border: hsl( 38, 60%, 26%);
+  --color-medium-text:   hsl( 38, 80%, 68%);
+
+  /* ── Severity — LOW (dark) */
+  --color-low:        hsl(145, 55%, 50%);
+  --color-low-hover:  hsl(145, 55%, 58%);
+  --color-low-subtle: hsl(145, 40%, 12%);
+  --color-low-border: hsl(145, 35%, 24%);
+  --color-low-text:   hsl(145, 55%, 60%);
+
+  /* ── Severity — NONE (dark) */
+  --color-none:        hsl(220, 10%, 50%);
+  --color-none-subtle: hsl(220, 10%, 13%);
+  --color-none-border: hsl(220, 10%, 24%);
+  --color-none-text:   hsl(220, 10%, 60%);
+
+  /* ── Status indicators (dark) */
+  --color-status-green:        hsl(145, 55%, 50%);
+  --color-status-amber:        hsl( 38, 88%, 58%);
+  --color-status-red:          hsl(  5, 80%, 62%);
+  --color-status-green-subtle: hsl(145, 40%, 12%);
+  --color-status-amber-subtle: hsl( 38, 70%, 12%);
+  --color-status-red-subtle:   hsl(  5, 60%, 12%);
+
+  /* ── Threat-intelligence highlights (dark) */
+  --color-kev:        hsl(  5, 80%, 62%);
+  --color-kev-subtle: hsl(  5, 60%, 12%);
+  --color-kev-text:   hsl(  5, 80%, 72%);
+  --color-epss:        hsl(280, 60%, 65%);
+  --color-epss-subtle: hsl(280, 50%, 14%);
+  --color-epss-text:   hsl(280, 60%, 74%);
+
+  /* ── Borders (dark) */
+  --color-border-default: hsl(220, 14%, 22%);
+  --color-border-strong:  hsl(220, 14%, 32%);
+  --color-border-focus:   hsl(215, 80%, 60%);
+
+  /* ── Code / Monospace background (dark) */
+  --color-code-bg: hsl(222, 20%, 13%);
+
+  /* ── Compatibility aliases (dark overrides) ─────────────────────── */
+  --color-brand-400:        hsl(215, 80%, 65%);
+  --color-brand-500:        hsl(215, 80%, 60%);
+  --color-brand-600:        hsl(215, 80%, 54%);
+  --color-surface-elevated: hsl(222, 18%, 16%);
+  --color-border-subtle:    hsl(220, 14%, 17%);
+  --color-text-muted:       hsl(218,  8%, 36%);
+}
+
+/* ── 3. Typography Scale ──────────────────────────────────────────────────── */
+
+:root {
+  /* Font families */
+  --font-sans: 'Inter', 'SF Pro Display', system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code',
+    'Consolas', 'Liberation Mono', monospace;
+
+  /* Font sizes — deliberately avoids rem to stay predictable when the
+     user overrides the root font size. All sizes are based on a 15px base. */
+  --text-2xs:  0.625rem;   /*  10px */
+  --text-xs:   0.6875rem;  /*  11px */
+  --text-sm:   0.8125rem;  /*  13px */
+  --text-base: 0.9375rem;  /*  15px — body default */
+  --text-md:   1rem;       /*  16px */
+  --text-lg:   1.125rem;   /*  18px */
+  --text-xl:   1.3125rem;  /*  21px */
+  --text-2xl:  1.5rem;     /*  24px */
+  --text-3xl:  1.875rem;   /*  30px */
+  --text-4xl:  2.25rem;    /*  36px */
+  --text-5xl:  3rem;       /*  48px */
+
+  /* Font weights */
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  /* Line heights */
+  --leading-none:    1;
+  --leading-tight:   1.2;
+  --leading-snug:    1.375;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.65;
+  --leading-loose:   2;
+
+  /* Letter spacings */
+  --tracking-tighter: -0.04em;
+  --tracking-tight:   -0.02em;
+  --tracking-normal:   0;
+  --tracking-wide:     0.04em;
+  --tracking-wider:    0.08em;
+  --tracking-caps:     0.12em;  /* all-caps labels */
+
+  /* ── 4. Spacing Scale ─────────────────────────────────────────────────── */
+  /* Multiples of 4px. Named for semantic clarity over memorisation. */
+  --space-0:    0;
+  --space-px:   1px;
+  --space-0_5:  0.125rem;  /*  2px */
+  --space-1:    0.25rem;   /*  4px */
+  --space-1_5:  0.375rem;  /*  6px */
+  --space-2:    0.5rem;    /*  8px */
+  --space-2_5:  0.625rem;  /* 10px */
+  --space-3:    0.75rem;   /* 12px */
+  --space-3_5:  0.875rem;  /* 14px */
+  --space-4:    1rem;      /* 16px */
+  --space-5:    1.25rem;   /* 20px */
+  --space-6:    1.5rem;    /* 24px */
+  --space-7:    1.75rem;   /* 28px */
+  --space-8:    2rem;      /* 32px */
+  --space-10:   2.5rem;    /* 40px */
+  --space-12:   3rem;      /* 48px */
+  --space-14:   3.5rem;    /* 56px */
+  --space-16:   4rem;      /* 64px */
+  --space-20:   5rem;      /* 80px */
+  --space-24:   6rem;      /* 96px */
+  --space-32:   8rem;      /* 128px */
+
+  /* ── 5. Border Radii ──────────────────────────────────────────────────── */
+  --radius-none:  0;
+  --radius-sm:    0.1875rem;  /* 3px  — hairline chips */
+  --radius-md:    0.375rem;   /* 6px  — inputs, small cards */
+  --radius-lg:    0.625rem;   /* 10px — cards, panels */
+  --radius-xl:    0.875rem;   /* 14px — large cards */
+  --radius-2xl:   1.25rem;    /* 20px — dialogs, modals */
+  --radius-full:  9999px;     /* pill — badges, toggle */
+
+  /* ── 6. Elevation / Shadow ────────────────────────────────────────────── */
+  /* Light-theme shadows — soft, low-alpha */
+  --shadow-xs:    0 1px 2px hsl(222 22% 8% / 0.06);
+  --shadow-sm:    0 1px 3px hsl(222 22% 8% / 0.10),
+                  0 1px 2px -1px hsl(222 22% 8% / 0.10);
+  --shadow-md:    0 4px 6px -1px hsl(222 22% 8% / 0.10),
+                  0 2px 4px -2px hsl(222 22% 8% / 0.10);
+  --shadow-lg:    0 10px 15px -3px hsl(222 22% 8% / 0.10),
+                  0 4px 6px -4px hsl(222 22% 8% / 0.10);
+  --shadow-xl:    0 20px 25px -5px hsl(222 22% 8% / 0.10),
+                  0 8px 10px -6px hsl(222 22% 8% / 0.10);
+  /* Focus ring — used on every interactive element via focus-visible */
+  --shadow-focus: 0 0 0 3px hsl(215 80% 48% / 0.35);
+
+  /* ── 7. Motion Curves ─────────────────────────────────────────────────── */
+  /* Durations */
+  --duration-instant:    0ms;
+  --duration-fast:      90ms;
+  --duration-normal:   160ms;
+  --duration-moderate: 250ms;
+  --duration-slow:     380ms;
+  --duration-deliberate: 550ms;
+
+  /* Easings — named for intent, not mechanism */
+  --ease-linear:    linear;
+  --ease-in:        cubic-bezier(0.4, 0, 1, 1);
+  --ease-out:       cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out:    cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-spring:    cubic-bezier(0.34, 1.56, 0.64, 1);  /* gentle overshoot */
+  --ease-snappy:    cubic-bezier(0.2, 0, 0, 1);          /* quick start, soft stop */
+
+  /* Compound transitions — most components use these directly */
+  --transition-colors:
+    color            var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color     var(--duration-fast) var(--ease-out),
+    fill             var(--duration-fast) var(--ease-out),
+    stroke           var(--duration-fast) var(--ease-out);
+  --transition-shadow:
+    box-shadow var(--duration-fast) var(--ease-out);
+  --transition-transform:
+    transform var(--duration-normal) var(--ease-spring);
+  --transition-opacity:
+    opacity var(--duration-normal) var(--ease-in-out);
+
+  /* ── 8. Z-Index Strata ────────────────────────────────────────────────── */
+  /* Named strata prevent magic numbers from proliferating. */
+  --z-below:   -1;
+  --z-base:     0;
+  --z-raised:   1;   /* within-page raised cards */
+  --z-sticky:  10;   /* sticky table headers */
+  --z-fixed:   20;   /* fixed nav bar */
+  --z-overlay: 30;   /* drawer backdrop */
+  --z-drawer:  40;   /* side-sheet drawer */
+  --z-modal:   50;   /* dialog / modal */
+  --z-popover: 60;   /* combobox dropdown, select menu */
+  --z-toast:   70;   /* toast notification stack */
+  --z-tooltip: 80;   /* tooltip */
+  --z-spinner: 90;   /* global loading spinner */
+
+  /* ── 9. Layout Geometry ───────────────────────────────────────────────── */
+  --layout-nav-height:    3.5rem;    /* 56px  — top navigation bar */
+  --layout-sidebar-width: 17.5rem;  /* 280px — filter rail on /search */
+  --layout-content-max:   60rem;    /* 960px — max-width for single-column views like /cve/[id] */
+  --layout-page-gutter:   1.5rem;   /* 24px  — horizontal page padding */
+  --layout-section-gap:   2rem;     /* 32px  — vertical gap between major sections */
+  --layout-card-gap:      1.5rem;   /* 24px  — gap inside a grid of cards */
+
+  /* Dashboard 12-column grid (collapses to 4-col below 900px via container query) */
+  --layout-grid-cols:     12;
+  --layout-grid-col-4:    calc(4 / 12 * 100%);
+  --layout-grid-col-6:    50%;
+  --layout-grid-col-8:    calc(8 / 12 * 100%);
+  --layout-grid-col-12:   100%;
+
+  /* ── Compatibility aliases (numeric brand scale + component tokens) ─── */
+  --color-brand-400:        hsl(215, 80%, 55%);
+  --color-brand-500:        hsl(215, 80%, 48%);
+  --color-brand-600:        hsl(215, 80%, 40%);
+  --color-surface-elevated: hsl(220, 16%, 93%);
+  --color-border-subtle:    hsl(220, 14%, 92%);
+  --color-text-muted:       hsl(222,  8%, 72%);
+  --color-text-on-brand:    hsl(  0,  0%, 100%);
+  --z-header:               20;
+}
+
+/* ── Dark-theme shadow overrides (deeper, higher contrast) ─────────────── */
+[data-theme="dark"] {
+  --shadow-xs:    0 1px 2px hsl(0 0% 0% / 0.25);
+  --shadow-sm:    0 1px 3px hsl(0 0% 0% / 0.35),
+                  0 1px 2px -1px hsl(0 0% 0% / 0.35);
+  --shadow-md:    0 4px 6px -1px hsl(0 0% 0% / 0.40),
+                  0 2px 4px -2px hsl(0 0% 0% / 0.40);
+  --shadow-lg:    0 10px 15px -3px hsl(0 0% 0% / 0.45),
+                  0 4px 6px -4px hsl(0 0% 0% / 0.45);
+  --shadow-xl:    0 20px 25px -5px hsl(0 0% 0% / 0.50),
+                  0 8px 10px -6px hsl(0 0% 0% / 0.50);
+  --shadow-focus: 0 0 0 3px hsl(215 80% 60% / 0.45);
+}
+
+/* ── 10. Base Element Styles ──────────────────────────────────────────────── */
+
+html {
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
+  line-height: var(--leading-normal);
+  color: var(--color-text-primary);
+  background-color: var(--color-surface-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100vh;
+  min-height: 100dvh; /* dynamic viewport on mobile browsers */
+}
+
+/* Anchor base */
+a {
+  color: var(--color-brand-default);
+  text-decoration: none;
+  transition: var(--transition-colors);
+}
+
+a:hover {
+  color: var(--color-brand-hover);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+/* Global focus ring — applies to all elements unless overridden */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-focus);
+}
+
+/* Button reset — components build on top of this */
+button {
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  line-height: inherit;
+}
+
+/* Code / pre */
+code,
+kbd,
+samp {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-code-bg);
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  background: var(--color-code-bg);
+  padding: var(--space-4);
+  border-radius: var(--radius-md);
+  overflow-x: auto;
+  line-height: var(--leading-relaxed);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: inherit;
+}
+
+/* Table reset */
+table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+/* Selection */
+::selection {
+  background: hsl(215, 80%, 48%, 0.25);
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] ::selection {
+  background: hsl(215, 80%, 60%, 0.35);
+}
+
+/* Scrollbar — subtle, consistent with dark theme */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border-strong);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-disabled);
+}
+
+/* ── 11. Utility: .skeleton shimmer ──────────────────────────────────────── */
+/*
+ *  Used on every loading placeholder across the app.
+ *  Pure-CSS shimmer — no JS, no animation library.
+ *  The colour steps reference the surface token set, so it works in
+ *  both light and dark themes without modification.
+ */
+
+.skeleton {
+  display: block;
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-overlay) 25%,
+    var(--color-surface-sunken)  50%,
+    var(--color-surface-overlay) 75%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.6s var(--ease-in-out) infinite;
+  border-radius: var(--radius-md);
+  pointer-events: none;
+  user-select: none;
+}
+
+@keyframes skeleton-shimmer {
+  0%   { background-position:  200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Allow override of border-radius when skeleton is on a specific shape */
+.skeleton--pill   { border-radius: var(--radius-full); }
+.skeleton--circle { border-radius: 50%; }
+.skeleton--none   { border-radius: 0; }
+
+/* ── 12. Responsive: desktop-only banner ─────────────────────────────────── */
+/*
+ *  Section 2.8: the app targets SOC analyst desktops (≥ 1024px).
+ *  Below 768px a banner advises desktop use; the app remains operable
+ *  but is not optimised for that width.
+ */
+
+.desktop-hint-banner {
+  display: none;
+}
+
+@media (max-width: 767px) {
+  .desktop-hint-banner {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-2);
+    padding: var(--space-2_5) var(--space-4);
+    background: var(--color-medium-subtle);
+    color: var(--color-medium-text);
+    border-bottom: 1px solid var(--color-medium-border);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    text-align: center;
+    line-height: var(--leading-snug);
+  }
+}

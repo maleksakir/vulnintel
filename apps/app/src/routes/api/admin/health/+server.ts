@@ -1,0 +1,21 @@
+import type { RequestHandler } from './$types';
+import { getAdminHealth } from '$lib/server/queries/getAdminHealth';
+import { errorResponse } from '$lib/server/errorResponse';
+
+export const GET: RequestHandler = async ({ request, platform, locals }) => {
+  const env = platform!.env;
+  const authHeader = request.headers.get('Authorization') ?? '';
+
+  if (authHeader !== `Bearer ${env.ADMIN_BEARER}`) {
+    return errorResponse('FORBIDDEN_NETWORK', 'Invalid or missing bearer token.', locals.cfRay, 403);
+  }
+
+  const data = await getAdminHealth(env.DB, env.CLOUDFLARE_ACCOUNT_ID, env.CLOUDFLARE_API_TOKEN);
+
+  return new Response(JSON.stringify(data), {
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+    },
+  });
+};

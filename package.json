@@ -1,0 +1,23 @@
+{
+  "name": "threat-lens-cve-hub",
+  "private": true,
+  "packageManager": "pnpm@11.2.2",
+  "scripts": {
+    "build": "pnpm --filter=threat-lens-app build && pnpm --filter=threat-lens-ingest build",
+    "build:app": "pnpm --filter=threat-lens-app build",
+    "build:ingest": "pnpm --filter=threat-lens-ingest build",
+    "check": "pnpm -r check",
+    "check:app": "pnpm --filter=threat-lens-app check",
+    "check:ingest": "pnpm --filter=threat-lens-ingest check",
+    "check:contracts": "pnpm --filter=@threat-lens/contracts check",
+    "deploy:app": "pnpm --filter=threat-lens-app deploy",
+    "deploy:app:staging": "pnpm --filter=threat-lens-app deploy:staging",
+    "deploy:ingest": "pnpm --filter=threat-lens-ingest deploy",
+    "deploy:ingest:staging": "pnpm --filter=threat-lens-ingest deploy:staging",
+    "deploy:staging": "pnpm --filter=threat-lens-app deploy:staging && pnpm --filter=threat-lens-ingest deploy:staging",
+    "types:app": "pnpm --filter=threat-lens-app types"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  }
+}

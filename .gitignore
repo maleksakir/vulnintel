@@ -1,0 +1,42 @@
+# ── Secrets & environment ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── JSON — tracked files must be explicitly allowed ──────────────────────────
+*.json
+# Workspace root
+!package.json
+!pnpm-workspace.yaml
+# apps/app
+!apps/app/package.json
+!apps/app/tsconfig.json
+# apps/ingest
+!apps/ingest/package.json
+!apps/ingest/tsconfig.json
+# packages/contracts
+!packages/contracts/package.json
+!packages/contracts/tsconfig.json
+# Shared TypeScript base
+!tsconfig.base.json
+
+# ── Node / pnpm ──────────────────────────────────────────────────────────────
+node_modules/
+# pnpm-lock.yaml is committed for reproducible installs
+
+# ── Cloudflare / Wrangler build artifacts ────────────────────────────────────
+.svelte-kit/
+.wrangler/
+*.dryrun/
+dist/
+
+# ── OS artifacts ─────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── IDE ──────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.suo
+*.user
+.vs/

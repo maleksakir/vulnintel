@@ -1,0 +1,21 @@
+{
+  "name": "@threat-lens/ingest",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --env staging",
+    "deploy": "wrangler deploy --env staging",
+    "deploy:prod": "wrangler deploy",
+    "check": "tsc --noEmit",
+    "cf-typegen": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250522.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.14.4"
+  },
+  "dependencies": {
+    "@threat-lens/contracts": "workspace:*"
+  }
+}

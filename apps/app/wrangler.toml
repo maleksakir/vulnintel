@@ -1,0 +1,75 @@
+name = "threat-lens-app"
+main = ".svelte-kit/cloudflare/_worker.js"
+compatibility_date = "2026-05-22"
+compatibility_flags = ["nodejs_compat"]
+
+# Static assets emitted by adapter-cloudflare. The SPA not-found handling
+# routes deep-link cold loads (e.g. /cve/CVE-2026-12345 typed directly)
+# to the worker entry instead of returning a static 404.
+[assets]
+directory = ".svelte-kit/cloudflare"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+# Production database. The app worker uses a read-mostly access pattern;
+# write paths are gated by the application layer to admin-only routes.
+[[d1_databases]]
+binding = "DB"
+database_name = "cve_prod_d1"
+database_id = "REPLACE_AFTER_PROVISIONING"
+migrations_dir = "../../migrations"
+
+# Vector index for hybrid semantic search.
+[[vectorize]]
+binding = "VECTORIZE"
+index_name = "cve-vector-index"
+
+# Telemetry sink for request-side metrics (search latencies, page views,
+# rate-limit hits, audit log of IP + request_id).
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "cve_analytics_dataset"
+
+# Workers AI binding for query-time embeddings on /api/search.
+[ai]
+binding = "AI"
+
+# Hot-path response cache (metric snapshots, KEV list, CVE detail).
+[[kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_AFTER_PROVISIONING"
+
+# ── Staging environment ───────────────────────────────────────────────────────
+# Wrangler does NOT inherit top-level bindings into [env.staging]; every
+# binding must be re-declared here. This is intentional — see Section 1.4.3.
+
+[env.staging]
+name = "threat-lens-app-staging"
+
+[env.staging.assets]
+directory = ".svelte-kit/cloudflare"
+binding = "ASSETS"
+not_found_handling = "single-page-application"
+run_worker_first = true
+
+[[env.staging.d1_databases]]
+binding = "DB"
+database_name = "cve_staging_d1"
+database_id = "REPLACE_AFTER_PROVISIONING"
+migrations_dir = "../../migrations"
+
+[[env.staging.vectorize]]
+binding = "VECTORIZE"
+index_name = "cve-vector-index-staging"
+
+[[env.staging.analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "cve_analytics_dataset_staging"
+
+[env.staging.ai]
+binding = "AI"
+
+[[env.staging.kv_namespaces]]
+binding = "CACHE"
+id = "REPLACE_AFTER_PROVISIONING"
