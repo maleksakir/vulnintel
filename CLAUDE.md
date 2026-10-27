@@ -64,3 +64,13 @@ orchestration for this project.
 - D1 migrations are additive/numbered — never edit a shipped migration file,
   add a new one.
 - Commit messages: explain *why*, not what (the diff shows what).
+- Tests: `@cloudflare/vitest-plugin`, real D1/KV/Queues against `workerd`
+  (Vectorize/Workers AI mocked). Run with `pnpm test` inside `apps/app/` or
+  `apps/ingest/` (each has its own `test` script; there is no root-level
+  aggregate script).
+- Lint: Biome, `.ts` files only (`.svelte` is untouched — no Svelte formatter
+  is configured). Run `pnpm lint` from the repo root, or `pnpm lint:fix` to
+  auto-fix.
+- CI: GitHub Actions (`.github/workflows/ci.yml`) runs typecheck + lint +
+  tests automatically on every PR and on push to `main`; per-app test jobs
+  are path-filtered so only the affected app's suite runs.
