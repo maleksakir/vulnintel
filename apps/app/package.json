@@ -26,6 +26,6 @@
   },
   "dependencies": {
     "@threat-lens/contracts": "workspace:*",
-    "bits-ui": "^1.3.16"
+    "bits-ui": "^2.20.2"
   }
 }
