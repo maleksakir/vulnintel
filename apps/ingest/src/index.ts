@@ -22,7 +22,7 @@ export default {
         await runKevFastLane(env, ctx);
         break;
 
-      case '0 3 * * 0':
+      case '0 3 * * 7':
         await runWeeklyReconciliation(env, ctx);
         break;
 

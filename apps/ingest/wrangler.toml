@@ -13,7 +13,7 @@ workers_dev = false
 crons = [
   "0 1 * * *",       # 01:00 UTC daily — NVD + MITRE + EPSS full delta
   "0 */6 * * *",     # every 6 hours — CISA KEV fast lane
-  "0 3 * * 0",       # 03:00 UTC Sunday — 30-day reconciliation sweep
+  "0 3 * * 7",       # 03:00 UTC Sunday — 30-day reconciliation sweep
   "30 2 * * *",      # 02:30 UTC daily — aging sweep (24-month cutoff)
   "0 4 * * *",       # 04:00 UTC daily — IP allowlist expiry prune
 ]
@@ -67,7 +67,7 @@ name = "threat-lens-ingest-staging"
 crons = [
   "0 1 * * *",
   "0 */6 * * *",
-  "0 3 * * 0",
+  "0 3 * * 7",
   "30 2 * * *",
   "0 4 * * *",
 ]
