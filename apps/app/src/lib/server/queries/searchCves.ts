@@ -32,7 +32,7 @@ export async function searchCves(
   const limit = Math.min(req.limit ?? 25, 50);
 
   // Quota check
-  const quota = await checkAndIncrementQuota(env.DB, clientIp);
+  const quota = await checkAndIncrementQuota(env.DB, env.RATE_LIMITER, clientIp);
   if (!quota.allowed) {
     return { response: { results: [], truncated: false }, ...(quota.reason !== undefined && { quotaError: quota.reason }) };
   }

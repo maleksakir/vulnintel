@@ -237,33 +237,57 @@ export async function applyKevPatch(
 
 // ── EPSS patch ─────────────────────────────────────────────────────────────
 
-export async function applyEpssPatch(
-  patch: EpssPatch,
+interface EpssStateRow {
+  cve_id: string;
+  epss_score: number | null;
+  epss_percentile: number | null;
+}
+
+/**
+ * Batched version of the EPSS patch path. FIRST.org ships a full daily
+ * snapshot (250k+ rows), not a delta — a SELECT-per-row change check (the
+ * previous approach) burns one D1 read per row, ~250k/day on its own. This
+ * does one batch read per chunk (`WHERE cve_id IN (...)`) instead, and only
+ * writes/invalidates cache for rows that actually changed.
+ */
+export async function applyEpssPatchBatch(
+  patches: EpssPatch[],
   env: Env,
   ctx: ExecutionContext,
 ): Promise<void> {
-  const cur = await env.DB.prepare(
-    `SELECT epss_score, epss_percentile FROM cve_state WHERE cve_id = ?`,
-  ).bind(patch.cveId).first<{ epss_score: number | null; epss_percentile: number | null }>();
+  if (patches.length === 0) return;
 
-  if (cur?.epss_score === patch.epssScore && cur.epss_percentile === patch.epssPercentile) {
-    return;
-  }
+  const placeholders = patches.map(() => '?').join(',');
+  const { results } = await env.DB.prepare(
+    `SELECT cve_id, epss_score, epss_percentile FROM cve_state WHERE cve_id IN (${placeholders})`,
+  ).bind(...patches.map((p) => p.cveId)).all<EpssStateRow>();
 
-  await env.DB.prepare(
-    `INSERT INTO cve_state
-       (cve_id, kev_listed, epss_score, epss_percentile, epss_updated_at, state_updated_at)
-     VALUES (?, 0, ?, ?, ?, ?)
-     ON CONFLICT (cve_id) DO UPDATE SET
-       epss_score       = excluded.epss_score,
-       epss_percentile  = excluded.epss_percentile,
-       epss_updated_at  = excluded.epss_updated_at,
-       state_updated_at = excluded.state_updated_at`,
-  ).bind(
-    patch.cveId, patch.epssScore, patch.epssPercentile, patch.epssUpdatedAt, Date.now(),
-  ).run();
+  const current = new Map(results.map((r) => [r.cve_id, r]));
 
-  ctx.waitUntil(env.CACHE.delete(`cve:${patch.cveId}`));
+  const changed = patches.filter((p) => {
+    const cur = current.get(p.cveId);
+    return cur?.epss_score !== p.epssScore || cur?.epss_percentile !== p.epssPercentile;
+  });
+
+  if (changed.length === 0) return;
+
+  const now = Date.now();
+  await env.DB.batch(
+    changed.map((p) =>
+      env.DB.prepare(
+        `INSERT INTO cve_state
+           (cve_id, kev_listed, epss_score, epss_percentile, epss_updated_at, state_updated_at)
+         VALUES (?, 0, ?, ?, ?, ?)
+         ON CONFLICT (cve_id) DO UPDATE SET
+           epss_score       = excluded.epss_score,
+           epss_percentile  = excluded.epss_percentile,
+           epss_updated_at  = excluded.epss_updated_at,
+           state_updated_at = excluded.state_updated_at`,
+      ).bind(p.cveId, p.epssScore, p.epssPercentile, p.epssUpdatedAt, now),
+    ),
+  );
+
+  ctx.waitUntil(Promise.all(changed.map((p) => env.CACHE.delete(`cve:${p.cveId}`))));
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

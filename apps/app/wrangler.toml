@@ -40,6 +40,15 @@ binding = "AI"
 binding = "CACHE"
 id = "REPLACE_AFTER_PROVISIONING"
 
+# Per-IP search throttle (quota.ts) — Workers-native, free, no KV/D1 traffic.
+# Approximate by design (fixed 60s window, not a sliding hour); the exact
+# org-wide daily quota stays in D1. namespace_id just needs to be unique
+# within this Worker, it isn't a provisioned resource.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 500, period = 60 }
+
 # ── Staging environment ───────────────────────────────────────────────────────
 # Wrangler does NOT inherit top-level bindings into [env.staging]; every
 # binding must be re-declared here. This is intentional — see Section 1.4.3.

@@ -28,6 +28,8 @@ declare global {
         ADMIN_BEARER: string;
         // Analytics Engine SQL HTTP API token for metrics queries
         ANALYTICS_QUERY_TOKEN: string;
+        // Workers-native rate limiter — per-IP search throttle (see quota.ts)
+        RATE_LIMITER: RateLimit;
       };
       context: {
         /** Non-blocking async work — used for audit log writes. */

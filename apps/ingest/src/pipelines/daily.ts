@@ -2,10 +2,12 @@ import type { Env } from '../types';
 import { fetchNvdDelta } from '../adapters/nvd';
 import { fetchMitreDelta } from '../adapters/mitre';
 import { fetchEpssCsv } from '../adapters/epss';
-import { processRecord, applyEpssPatch } from '../lib/server/processRecord';
+import type { EpssPatch } from '@threat-lens/contracts';
+import { processRecord, applyEpssPatchBatch } from '../lib/server/processRecord';
 import { markIngestStarted, markIngestFinished } from '../lib/server/ingestRun';
 
 const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety overlap
+const EPSS_BATCH_SIZE = 200; // chunk size for the batched change-detection read
 
 /**
  * Daily full delta (cron: 0 1 * * *).
@@ -79,18 +81,30 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   let epssFailed = 0;
   let epssError: string | undefined;
 
+  let epssBatch: EpssPatch[] = [];
+  const flushEpssBatch = async () => {
+    if (epssBatch.length === 0) return;
+    const batch = epssBatch;
+    epssBatch = [];
+    try {
+      await applyEpssPatchBatch(batch, env, ctx);
+      epssProcessed += batch.length;
+    } catch {
+      epssFailed += batch.length;
+    }
+  };
+
   try {
     for await (const patch of fetchEpssCsv()) {
-      try {
-        await applyEpssPatch(patch, env, ctx);
-        epssProcessed++;
-      } catch {
-        epssFailed++;
+      epssBatch.push(patch);
+      if (epssBatch.length >= EPSS_BATCH_SIZE) {
+        await flushEpssBatch();
       }
     }
+    await flushEpssBatch();
   } catch (err) {
     epssError = String(err);
-    epssFailed++;
+    epssFailed += epssBatch.length;
   }
 
   await markIngestFinished(
