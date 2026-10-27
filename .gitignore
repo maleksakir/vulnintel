@@ -19,6 +19,9 @@
 !packages/contracts/tsconfig.json
 # Shared TypeScript base
 !tsconfig.base.json
+# Tooling config
+!biome.json
+!renovate.json
 
 # ── Node / pnpm ──────────────────────────────────────────────────────────────
 node_modules/

@@ -1,13 +1,13 @@
 import type { Handle } from '@sveltejs/kit';
 
 const CACHE_CONTROL: Record<string, string> = {
-  '/api/cve/':              'public, max-age=300',
-  '/api/search':            'no-store',
+  '/api/cve/': 'public, max-age=300',
+  '/api/search': 'no-store',
   '/api/affected-products': 'public, max-age=300',
-  '/api/threat-intel/kev':  'public, max-age=3600',
+  '/api/threat-intel/kev': 'public, max-age=3600',
   '/api/threat-intel/epss': 'public, max-age=3600',
-  '/api/metrics/':          'public, max-age=300',
-  '/api/admin/health':      'no-store',
+  '/api/metrics/': 'public, max-age=300',
+  '/api/admin/health': 'no-store',
 };
 
 function getCacheControl(pathname: string): string | null {

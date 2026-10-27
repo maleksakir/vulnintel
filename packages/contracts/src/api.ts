@@ -59,8 +59,8 @@ export interface CpeRow {
 
 export interface CveDetailResponse {
   cveId: string;
-  publishedAt: string;     // ISO 8601 (converted from unix ms at API boundary)
-  lastModifiedAt: string;  // ISO 8601
+  publishedAt: string; // ISO 8601 (converted from unix ms at API boundary)
+  lastModifiedAt: string; // ISO 8601
   description: string;
   severity: Severity;
   cvss: CvssBlock | null;
@@ -90,23 +90,23 @@ export interface SearchFilters {
 
 export interface SearchRequest {
   /** Free-text or CVE ID. Exactly one of query or similarTo is required. */
-  query?: string;          // 1–256 chars
+  query?: string; // 1–256 chars
   /** "More like this" — uses existing vector for the given CVE ID. */
-  similarTo?: string;      // CVE-YYYY-NNNNN
+  similarTo?: string; // CVE-YYYY-NNNNN
   filters?: SearchFilters;
-  limit?: number;          // 1–50, default 25
+  limit?: number; // 1–50, default 25
 }
 
 export interface SearchResultItem {
   cveId: string;
-  score: number;           // Fused RRF score
+  score: number; // Fused RRF score
   severity: Severity;
   cvssBase: number | null;
   kevListed: boolean;
   epssPercentile: number | null;
-  publishedAt: string;     // ISO 8601
-  vendors: string[];       // Top-3 distinct vendors from cpe
-  snippet: string;         // FTS5-highlighted or first 200 chars of description
+  publishedAt: string; // ISO 8601
+  vendors: string[]; // Top-3 distinct vendors from cpe
+  snippet: string; // FTS5-highlighted or first 200 chars of description
 }
 
 export interface SearchResponse {
@@ -120,14 +120,14 @@ export interface AffectedProductsRequest {
   vendor?: string;
   product?: string;
   minCvss?: number;
-  cursor?: string;  // base64 of last row_id
-  limit?: number;   // 1–100, default 50
+  cursor?: string; // base64 of last row_id
+  limit?: number; // 1–100, default 50
 }
 
 export interface AffectedProductRow {
   vendor: string;
   product: string;
-  versionRange: string;    // Pretty-formatted range string
+  versionRange: string; // Pretty-formatted range string
   cveCount: number;
   latestCveId: string;
   latestPublishedAt: string; // ISO 8601
@@ -145,8 +145,8 @@ export interface KevListRow {
   cveId: string;
   severity: Severity;
   vendor: string;
-  kevDateAdded: string;            // ISO 8601
-  kevDueDate: string | null;       // ISO 8601
+  kevDateAdded: string; // ISO 8601
+  kevDueDate: string | null; // ISO 8601
   kevRequiredAction: string;
 }
 
@@ -203,7 +203,7 @@ export type IngestSource = 'NVD' | 'MITRE' | 'KEV' | 'EPSS' | 'AGING';
 export type IngestStaleness = 'green' | 'amber' | 'red';
 
 export interface IngestSourceStatus {
-  lastStartedAt: string | null;  // ISO 8601
+  lastStartedAt: string | null; // ISO 8601
   lastFinishedAt: string | null; // ISO 8601
   lastStatus: 'OK' | 'PARTIAL' | 'FAILED' | null;
   recordsProcessed: number | null;
@@ -223,8 +223,8 @@ export interface HealthResponse {
     auditLog: number;
   };
   queues: {
-    retryDepth: number;  // -1 if Cloudflare API unreachable
-    dlqDepth: number;    // -1 if Cloudflare API unreachable
+    retryDepth: number; // -1 if Cloudflare API unreachable
+    dlqDepth: number; // -1 if Cloudflare API unreachable
   };
   rateLimits: {
     lastHourBlocks: number;

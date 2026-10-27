@@ -1,7 +1,7 @@
-import type { RequestHandler } from './$types';
+import { errorResponse } from '$lib/server/errorResponse';
 import { getAffectedProducts } from '$lib/server/queries/getAffectedProducts';
 import { validateAffectedProductsParams } from '$lib/server/validate/index';
-import { errorResponse } from '$lib/server/errorResponse';
+import type { RequestHandler } from './$types';
 
 export const GET: RequestHandler = async ({ url, platform, locals }) => {
   const validation = validateAffectedProductsParams(url.searchParams);

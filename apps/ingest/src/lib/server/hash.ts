@@ -2,12 +2,10 @@ import type { NormalizedCveRecord } from '@threat-lens/contracts';
 
 /** sha-256 of description + sorted-CWEs + sorted-top-5-vendors. Changes when core content changes. */
 export async function computeTextHash(record: NormalizedCveRecord): Promise<string> {
-  const topVendors = [...new Set(record.cpes.map(c => c.vendor))].sort().slice(0, 5);
-  const raw = [
-    record.description,
-    record.cwes.slice().sort().join(','),
-    topVendors.join(','),
-  ].join('|');
+  const topVendors = [...new Set(record.cpes.map((c) => c.vendor))].sort().slice(0, 5);
+  const raw = [record.description, record.cwes.slice().sort().join(','), topVendors.join(',')].join(
+    '|',
+  );
   return sha256hex(raw);
 }
 
@@ -32,5 +30,5 @@ export async function computeStateHash(
 async function sha256hex(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
   const buf = await crypto.subtle.digest('SHA-256', data);
-  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }

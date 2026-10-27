@@ -31,12 +31,11 @@
  *   a re-run are skipped entirely.
  */
 
-import type { Env } from '../src/types';
-import type { NormalizedCveRecord, NormalizedCpe, Severity } from '@threat-lens/contracts';
-import { processRecord } from '../src/lib/server/processRecord';
-import { fetchKevCatalog } from '../src/adapters/kev';
+import type { NormalizedCpe, NormalizedCveRecord, Severity } from '@threat-lens/contracts';
 import { fetchEpssCsv } from '../src/adapters/epss';
-import { applyKevPatch, applyEpssPatch } from '../src/lib/server/processRecord';
+import { fetchKevCatalog } from '../src/adapters/kev';
+import { applyEpssPatch, applyKevPatch, processRecord } from '../src/lib/server/processRecord';
+import type { Env } from '../src/types';
 
 const NVD_BASE = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 const RESULTS_PER_PAGE = 2000;
@@ -107,12 +106,14 @@ export async function run(env: Env): Promise<void> {
 
   // Restore checkpoint
   const raw = await env.CACHE.get(CHECKPOINT_KEY);
-  let checkpoint: BackfillCheckpoint = raw
+  const checkpoint: BackfillCheckpoint = raw
     ? (JSON.parse(raw) as BackfillCheckpoint)
     : { startIndex: 0, totalResults: Infinity, ts: Date.now() };
 
   if (checkpoint.startIndex > 0) {
-    console.log(`[backfill] Resuming from startIndex=${checkpoint.startIndex} / totalResults=${checkpoint.totalResults}`);
+    console.log(
+      `[backfill] Resuming from startIndex=${checkpoint.startIndex} / totalResults=${checkpoint.totalResults}`,
+    );
   }
 
   let startIndex = checkpoint.startIndex;
@@ -129,7 +130,7 @@ export async function run(env: Env): Promise<void> {
     let body: NvdCveResponse;
     try {
       const res = await fetchWithRetry(url.toString(), apiKey);
-      body = await res.json() as NvdCveResponse;
+      body = (await res.json()) as NvdCveResponse;
     } catch (err) {
       console.error(`[backfill] Page fetch failed at startIndex=${startIndex}:`, err);
       // Save checkpoint and abort — restart will retry this page
@@ -140,7 +141,9 @@ export async function run(env: Env): Promise<void> {
     total = body.totalResults;
     pageCount++;
 
-    console.log(`[backfill] Page ${pageCount}: records ${startIndex}–${Math.min(startIndex + body.resultsPerPage, total) - 1} / ${total}`);
+    console.log(
+      `[backfill] Page ${pageCount}: records ${startIndex}–${Math.min(startIndex + body.resultsPerPage, total) - 1} / ${total}`,
+    );
 
     for (const { cve } of body.vulnerabilities) {
       const record = normalizeNvdCve(cve);
@@ -162,7 +165,9 @@ export async function run(env: Env): Promise<void> {
     if (startIndex < total) await sleep(PAGE_DELAY_MS);
   }
 
-  console.log(`[backfill] NVD pass complete. processed=${processed} failed=${failed} pages=${pageCount}`);
+  console.log(
+    `[backfill] NVD pass complete. processed=${processed} failed=${failed} pages=${pageCount}`,
+  );
 
   // Clear checkpoint — NVD pass done
   await env.CACHE.delete(CHECKPOINT_KEY);
@@ -237,16 +242,23 @@ async function fetchWithRetry(url: string, apiKey: string, maxAttempts = 8): Pro
 }
 
 function normalizeNvdCve(cve: NvdCve): NormalizedCveRecord | null {
-  const enDesc = cve.descriptions.find(d => d.lang === 'en');
+  const enDesc = cve.descriptions.find((d) => d.lang === 'en');
   if (!enDesc) return null;
 
   let cvss: NormalizedCveRecord['cvss'] = null;
   const m4 = cve.metrics?.cvssMetricV40?.[0];
-  const m31 = cve.metrics?.cvssMetricV31?.find(m => m.type === 'Primary')
-    ?? cve.metrics?.cvssMetricV31?.[0];
+  const m31 =
+    cve.metrics?.cvssMetricV31?.find((m) => m.type === 'Primary') ??
+    cve.metrics?.cvssMetricV31?.[0];
 
   if (m4) {
-    cvss = { version: '4.0', vector: m4.cvssData.vectorString, base: m4.cvssData.baseScore, exploitability: null, impact: null };
+    cvss = {
+      version: '4.0',
+      vector: m4.cvssData.vectorString,
+      base: m4.cvssData.baseScore,
+      exploitability: null,
+      impact: null,
+    };
   } else if (m31) {
     cvss = {
       version: '3.1',
@@ -272,7 +284,7 @@ function normalizeNvdCve(cve: NvdCve): NormalizedCveRecord | null {
   }
   const cpes = cpeMatches.map(parseCpeMatch).filter((c): c is NormalizedCpe => c !== null);
 
-  const references = (cve.references ?? []).map(r => ({ url: r.url, tags: r.tags ?? [] }));
+  const references = (cve.references ?? []).map((r) => ({ url: r.url, tags: r.tags ?? [] }));
 
   return {
     cveId: cve.id,
@@ -305,11 +317,21 @@ function parseCpeMatch(match: NvdCpeMatch): NormalizedCpe | null {
   return {
     cpeUri: match.criteria,
     part: rawPart === 'a' || rawPart === 'o' || rawPart === 'h' ? rawPart : null,
-    vendor, product, version,
-    ...(match.versionStartIncluding !== undefined && { versionStartIncluding: match.versionStartIncluding }),
-    ...(match.versionStartExcluding !== undefined && { versionStartExcluding: match.versionStartExcluding }),
-    ...(match.versionEndIncluding !== undefined && { versionEndIncluding: match.versionEndIncluding }),
-    ...(match.versionEndExcluding !== undefined && { versionEndExcluding: match.versionEndExcluding }),
+    vendor,
+    product,
+    version,
+    ...(match.versionStartIncluding !== undefined && {
+      versionStartIncluding: match.versionStartIncluding,
+    }),
+    ...(match.versionStartExcluding !== undefined && {
+      versionStartExcluding: match.versionStartExcluding,
+    }),
+    ...(match.versionEndIncluding !== undefined && {
+      versionEndIncluding: match.versionEndIncluding,
+    }),
+    ...(match.versionEndExcluding !== undefined && {
+      versionEndExcluding: match.versionEndExcluding,
+    }),
     vulnerable: match.vulnerable,
     extras: {},
   };
@@ -329,12 +351,14 @@ function cvssToSeverity(base: number | null, version: string | null): Severity {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 function buildMockCtx(): ExecutionContext {
   return {
-    waitUntil: (p: Promise<unknown>) => { p.catch(() => {}); },
+    waitUntil: (p: Promise<unknown>) => {
+      p.catch(() => {});
+    },
     passThroughOnException: () => {},
   } as ExecutionContext;
 }

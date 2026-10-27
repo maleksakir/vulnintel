@@ -12,40 +12,39 @@
  */
 
 export type {
-  Severity,
-  IngestSource,
-  NormalizedCpe,
-  NormalizedCveRecord,
-  KevPatch,
-  EpssPatch,
-  RetryMessage,
-} from './cve.js';
-
-export type {
-  ErrorCode,
-  ErrorEnvelope,
-  CvssBlock,
+  AffectedProductRow,
+  AffectedProductsRequest,
+  AffectedProductsResponse,
   CpeRow,
   CveDetailResponse,
-  SearchFilters,
-  SearchRequest,
-  SearchResultItem,
-  SearchResponse,
-  AffectedProductsRequest,
-  AffectedProductRow,
-  AffectedProductsResponse,
-  KevListRow,
-  KevListResponse,
-  EpssListRow,
+  CvssBlock,
   EpssListResponse,
-  MetricsWindow,
-  MetricsKpis,
-  MetricsSeries,
-  MetricsResponse,
+  EpssListRow,
+  ErrorCode,
+  ErrorEnvelope,
+  HealthResponse,
   IngestSourceStatus,
   IngestStaleness,
-  HealthResponse,
+  KevListResponse,
+  KevListRow,
+  MetricsKpis,
+  MetricsResponse,
+  MetricsSeries,
+  MetricsWindow,
+  SearchFilters,
+  SearchRequest,
+  SearchResponse,
+  SearchResultItem,
 } from './api.js';
+export type {
+  EpssPatch,
+  IngestSource,
+  KevPatch,
+  NormalizedCpe,
+  NormalizedCveRecord,
+  RetryMessage,
+  Severity,
+} from './cve.js';
 
 export type { EmbedFn } from './embed.js';
-export { EMBED_MODEL, EMBED_MAX_CHARS, EMBED_DIMENSIONS } from './embed.js';
+export { EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL } from './embed.js';

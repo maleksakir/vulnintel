@@ -1,4 +1,4 @@
-import type { NormalizedCveRecord, NormalizedCpe, Severity } from '@threat-lens/contracts';
+import type { NormalizedCpe, NormalizedCveRecord, Severity } from '@threat-lens/contracts';
 
 const NVD_BASE = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
 const RESULTS_PER_PAGE = 2000;
@@ -140,14 +140,15 @@ async function fetchWithRetry(url: string, apiKey: string, maxAttempts = 5): Pro
 }
 
 function normalizeNvdCve(cve: NvdCve): NormalizedCveRecord | null {
-  const enDesc = cve.descriptions.find(d => d.lang === 'en');
+  const enDesc = cve.descriptions.find((d) => d.lang === 'en');
   if (!enDesc) return null;
 
   // CVSS — prefer v4.0, fall back to v3.1
   let cvss: NormalizedCveRecord['cvss'] = null;
   const m4 = cve.metrics?.cvssMetricV40?.[0];
-  const m31 = cve.metrics?.cvssMetricV31?.find(m => m.type === 'Primary')
-    ?? cve.metrics?.cvssMetricV31?.[0];
+  const m31 =
+    cve.metrics?.cvssMetricV31?.find((m) => m.type === 'Primary') ??
+    cve.metrics?.cvssMetricV31?.[0];
 
   if (m4) {
     cvss = {
@@ -187,7 +188,7 @@ function normalizeNvdCve(cve: NvdCve): NormalizedCveRecord | null {
   const cpes = cpeMatches.map(parseCpeMatch).filter((c): c is NormalizedCpe => c !== null);
 
   // References
-  const references = (cve.references ?? []).map(r => ({
+  const references = (cve.references ?? []).map((r) => ({
     url: r.url,
     tags: r.tags ?? [],
   }));
@@ -229,19 +230,25 @@ function parseCpeMatch(match: NvdCpeMatch): NormalizedCpe | null {
     vendor,
     product,
     version,
-    ...(match.versionStartIncluding !== undefined && { versionStartIncluding: match.versionStartIncluding }),
-    ...(match.versionStartExcluding !== undefined && { versionStartExcluding: match.versionStartExcluding }),
-    ...(match.versionEndIncluding !== undefined && { versionEndIncluding: match.versionEndIncluding }),
-    ...(match.versionEndExcluding !== undefined && { versionEndExcluding: match.versionEndExcluding }),
+    ...(match.versionStartIncluding !== undefined && {
+      versionStartIncluding: match.versionStartIncluding,
+    }),
+    ...(match.versionStartExcluding !== undefined && {
+      versionStartExcluding: match.versionStartExcluding,
+    }),
+    ...(match.versionEndIncluding !== undefined && {
+      versionEndIncluding: match.versionEndIncluding,
+    }),
+    ...(match.versionEndExcluding !== undefined && {
+      versionEndExcluding: match.versionEndExcluding,
+    }),
     vulnerable: match.vulnerable,
     extras: {},
   };
 }
 
 function decodeCpeComp(s: string): string {
-  return s.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) =>
-    String.fromCharCode(parseInt(hex, 16)),
-  );
+  return s.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
 function cvssToSeverity(base: number | null, version: string | null): Severity {
@@ -262,5 +269,5 @@ function cvssToSeverity(base: number | null, version: string | null): Severity {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }

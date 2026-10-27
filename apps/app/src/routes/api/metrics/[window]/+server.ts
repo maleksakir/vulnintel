@@ -1,8 +1,8 @@
-import type { RequestHandler } from './$types';
-import { getMetrics } from '$lib/server/queries/getMetrics';
 import { cacheReadJson } from '$lib/server/cacheRead';
-import { isValidMetricsWindow } from '$lib/server/validate/index';
 import { errorResponse } from '$lib/server/errorResponse';
+import { getMetrics } from '$lib/server/queries/getMetrics';
+import { isValidMetricsWindow } from '$lib/server/validate/index';
+import type { RequestHandler } from './$types';
 
 const TTL = 300;
 

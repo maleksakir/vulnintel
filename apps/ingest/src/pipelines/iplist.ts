@@ -1,5 +1,5 @@
+import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import type { Env } from '../types';
-import { markIngestStarted, markIngestFinished } from '../lib/server/ingestRun';
 
 const CF_API_BASE = 'https://api.cloudflare.com/client/v4';
 const LIST_NAME = 'corp_authorized_sources';
@@ -47,17 +47,17 @@ export async function runIpListPrune(env: Env, ctx: ExecutionContext): Promise<v
     if (listId) {
       const items = await fetchAllListItems(env, listId);
       const expiredIds = items
-        .filter(item => {
+        .filter((item) => {
           const m = /expires:(\d+)/.exec(item.comment ?? '');
           return m && parseInt(m[1]!, 10) < startedAt;
         })
-        .map(item => item.id);
+        .map((item) => item.id);
 
       if (expiredIds.length > 0) {
         const delRes = await cfFetch<CfDeleteResponse>(
           env,
           `POST /accounts/${env.CLOUDFLARE_ACCOUNT_ID}/rules/lists/${listId}/items/delete`,
-          { items: expiredIds.map(id => ({ id })) },
+          { items: expiredIds.map((id) => ({ id })) },
         );
         if (!delRes.success) {
           throw new Error(`CF list delete failed: ${JSON.stringify(delRes.errors)}`);
@@ -69,18 +69,16 @@ export async function runIpListPrune(env: Env, ctx: ExecutionContext): Promise<v
     lastError = String(err);
   }
 
-  await markIngestFinished(
-    env, 'IPLIST_PRUNE',
-    lastError ? 'FAILED' : 'OK',
-    pruned, 0, lastError,
-  );
+  await markIngestFinished(env, 'IPLIST_PRUNE', lastError ? 'FAILED' : 'OK', pruned, 0, lastError);
 
   ctx.waitUntil(
-    Promise.resolve(env.ANALYTICS.writeDataPoint({
-      blobs: ['IPLIST_PRUNE', lastError ? 'FAILED' : 'OK', 'IPLIST_PRUNE', '', '', '', ''],
-      doubles: [startedAt, Date.now(), pruned, 0, Date.now() - startedAt],
-      indexes: ['ingest_run'],
-    })),
+    Promise.resolve(
+      env.ANALYTICS.writeDataPoint({
+        blobs: ['IPLIST_PRUNE', lastError ? 'FAILED' : 'OK', 'IPLIST_PRUNE', '', '', '', ''],
+        doubles: [startedAt, Date.now(), pruned, 0, Date.now() - startedAt],
+        indexes: ['ingest_run'],
+      }),
+    ),
   );
 }
 
@@ -89,7 +87,7 @@ async function resolveListId(env: Env): Promise<string | null> {
     env,
     `GET /accounts/${env.CLOUDFLARE_ACCOUNT_ID}/rules/lists`,
   );
-  return data.result.find(l => l.name === LIST_NAME)?.id ?? null;
+  return data.result.find((l) => l.name === LIST_NAME)?.id ?? null;
 }
 
 async function fetchAllListItems(env: Env, listId: string): Promise<CfListItem[]> {

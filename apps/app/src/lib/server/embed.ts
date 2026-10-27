@@ -1,4 +1,4 @@
-import { EMBED_MODEL, EMBED_MAX_CHARS } from '@threat-lens/contracts';
+import { EMBED_MAX_CHARS, EMBED_MODEL } from '@threat-lens/contracts';
 
 type AiLike = {
   run: (model: string, input: { text: string }) => Promise<{ data: number[][] }>;
@@ -21,8 +21,8 @@ export function buildEmbedText(record: {
   cwes: ReadonlyArray<string>;
   cpes: ReadonlyArray<{ vendor: string; product: string }>;
 }): string {
-  const vendors = [...new Set(record.cpes.map(c => c.vendor))].slice(0, 5).join(' ');
-  const products = [...new Set(record.cpes.map(c => c.product))].slice(0, 5).join(' ');
+  const vendors = [...new Set(record.cpes.map((c) => c.vendor))].slice(0, 5).join(' ');
+  const products = [...new Set(record.cpes.map((c) => c.product))].slice(0, 5).join(' ');
   const cwes = record.cwes.join(' ');
   return `${record.description} ${cwes} ${vendors} ${products}`.trim();
 }

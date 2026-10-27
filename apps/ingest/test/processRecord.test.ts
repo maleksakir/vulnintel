@@ -112,7 +112,11 @@ describe('processRecord', () => {
     const spies = spyOnBindings();
 
     const seedCtx = createExecutionContext();
-    await processRecord(makeRecord({ description: 'Original text.', severity: 'LOW' }), testEnv, seedCtx);
+    await processRecord(
+      makeRecord({ description: 'Original text.', severity: 'LOW' }),
+      testEnv,
+      seedCtx,
+    );
     await waitOnExecutionContext(seedCtx);
     spies.clearAll();
 

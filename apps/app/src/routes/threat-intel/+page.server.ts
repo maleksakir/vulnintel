@@ -1,5 +1,5 @@
+import { getEpssList, getKevList } from '$lib/server/queries/getThreatIntel';
 import type { PageServerLoad } from './$types';
-import { getKevList, getEpssList } from '$lib/server/queries/getThreatIntel';
 
 export const load: PageServerLoad = async ({ url, platform }) => {
   const db = platform?.env?.DB;

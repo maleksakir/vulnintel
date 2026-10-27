@@ -1,6 +1,6 @@
-import type { PageServerLoad } from './$types';
-import { getCveDetail } from '$lib/server/queries/getCveDetail';
 import { error } from '@sveltejs/kit';
+import { getCveDetail } from '$lib/server/queries/getCveDetail';
+import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ params, platform }) => {
   const db = platform?.env?.DB;

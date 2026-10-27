@@ -1,14 +1,21 @@
-import type { SearchRequest, SearchFilters, AffectedProductsRequest, MetricsWindow } from '@threat-lens/contracts';
+import type {
+  AffectedProductsRequest,
+  MetricsWindow,
+  SearchFilters,
+  SearchRequest,
+} from '@threat-lens/contracts';
 
 // ── SearchRequest ─────────────────────────────────────────────────────────────
 
-export function validateSearchRequest(body: unknown): {
-  ok: true;
-  value: SearchRequest;
-} | {
-  ok: false;
-  details: Record<string, string>;
-} {
+export function validateSearchRequest(body: unknown):
+  | {
+      ok: true;
+      value: SearchRequest;
+    }
+  | {
+      ok: false;
+      details: Record<string, string>;
+    } {
   if (typeof body !== 'object' || body === null) {
     return { ok: false, details: { _root: 'Request body must be a JSON object' } };
   }
@@ -112,13 +119,15 @@ export function isValidCveId(id: string): boolean {
 
 // ── AffectedProductsRequest ───────────────────────────────────────────────────
 
-export function validateAffectedProductsParams(params: URLSearchParams): {
-  ok: true;
-  value: AffectedProductsRequest;
-} | {
-  ok: false;
-  details: Record<string, string>;
-} {
+export function validateAffectedProductsParams(params: URLSearchParams):
+  | {
+      ok: true;
+      value: AffectedProductsRequest;
+    }
+  | {
+      ok: false;
+      details: Record<string, string>;
+    } {
   const errors: Record<string, string> = {};
 
   const limitStr = params.get('limit');

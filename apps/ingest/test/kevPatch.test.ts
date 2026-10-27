@@ -1,8 +1,8 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import type { KevPatch } from '@threat-lens/contracts';
 import { describe, expect, it } from 'vitest';
 import { applyKevPatch } from '../src/lib/server/processRecord';
 import { seedCveRow, seedCveState, spyOnBindings, testEnv, useCleanBindings } from './helpers';
-import type { KevPatch } from '@threat-lens/contracts';
 
 describe('applyKevPatch', () => {
   useCleanBindings();
@@ -64,7 +64,9 @@ describe('applyKevPatch', () => {
 
     expect(spies.analyticsWrite).toHaveBeenCalledTimes(1);
 
-    const row = await testEnv.DB.prepare('SELECT kev_listed, kev_required_action FROM cve_state WHERE cve_id = ?')
+    const row = await testEnv.DB.prepare(
+      'SELECT kev_listed, kev_required_action FROM cve_state WHERE cve_id = ?',
+    )
       .bind(cveId)
       .first<{ kev_listed: number; kev_required_action: string }>();
     expect(row).toEqual({ kev_listed: 1, kev_required_action: 'Apply vendor patch' });

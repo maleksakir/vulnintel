@@ -1,8 +1,8 @@
 import { redirect } from '@sveltejs/kit';
-import type { PageServerLoad } from './$types';
 import type { HealthResponse } from '@threat-lens/contracts';
-import { getAdminHealth } from '$lib/server/queries/getAdminHealth';
 import { timingSafeEqual } from '$lib/server/auth';
+import { getAdminHealth } from '$lib/server/queries/getAdminHealth';
+import type { PageServerLoad } from './$types';
 
 const SESSION_COOKIE = 'admin_session';
 

@@ -1,7 +1,7 @@
-import type { RequestHandler } from './$types';
-import { getEpssList } from '$lib/server/queries/getThreatIntel';
-import { cacheReadJson } from '$lib/server/cacheRead';
 import type { EpssListResponse } from '@threat-lens/contracts';
+import { cacheReadJson } from '$lib/server/cacheRead';
+import { getEpssList } from '$lib/server/queries/getThreatIntel';
+import type { RequestHandler } from './$types';
 
 const TTL = 3600;
 

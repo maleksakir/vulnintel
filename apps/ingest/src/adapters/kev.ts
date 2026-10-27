@@ -16,10 +16,10 @@ interface KevEntry {
   vendorProject: string;
   product: string;
   vulnerabilityName: string;
-  dateAdded: string;          // 'YYYY-MM-DD'
+  dateAdded: string; // 'YYYY-MM-DD'
   shortDescription: string;
   requiredAction: string;
-  dueDate: string | null;     // 'YYYY-MM-DD' or null
+  dueDate: string | null; // 'YYYY-MM-DD' or null
   knownRansomwareCampaignUse: string;
   notes: string;
 }
@@ -39,7 +39,7 @@ export async function fetchKevCatalog(): Promise<KevPatch[]> {
 
   const catalog = await res.json<KevCatalog>();
 
-  return catalog.vulnerabilities.map(entry => ({
+  return catalog.vulnerabilities.map((entry) => ({
     cveId: entry.cveID,
     kevDateAdded: parseKevDate(entry.dateAdded),
     kevDueDate: entry.dueDate ? parseKevDate(entry.dueDate) : null,

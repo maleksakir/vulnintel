@@ -35,30 +35,37 @@ export async function getAdminHealth(
   const oneDayAgo = now - 86_400_000;
 
   const [ingestRows, countsRow, rateLimitRows] = await Promise.all([
-    db.prepare(
-      `SELECT source, last_started_at, last_finished_at, last_status,
+    db
+      .prepare(
+        `SELECT source, last_started_at, last_finished_at, last_status,
               records_processed, records_failed
        FROM ingest_run
        WHERE source IN ('NVD','MITRE','KEV','EPSS','AGING')`,
-    ).all<IngestRow>(),
+      )
+      .all<IngestRow>(),
 
-    db.prepare(
-      `SELECT
+    db
+      .prepare(
+        `SELECT
          (SELECT COUNT(*) FROM cve)              AS cve,
          (SELECT COUNT(*) FROM cpe)              AS cpe,
          (SELECT COUNT(*) FROM cve_state)        AS cve_state,
          (SELECT COUNT(*) FROM cve_quarantine)   AS cve_quarantine,
          (SELECT COUNT(*) FROM audit_log)        AS audit_log`,
-    ).first<CountsRow>(),
+      )
+      .first<CountsRow>(),
 
-    db.prepare(
-      `SELECT client_ip, COUNT(*) AS blocks
+    db
+      .prepare(
+        `SELECT client_ip, COUNT(*) AS blocks
        FROM audit_log
        WHERE occurred_at > ? AND action LIKE 'RATE_LIMITED%'
        GROUP BY client_ip
        ORDER BY blocks DESC
        LIMIT 10`,
-    ).bind(oneDayAgo).all<RateLimitRow>(),
+      )
+      .bind(oneDayAgo)
+      .all<RateLimitRow>(),
   ]);
 
   // Build ingest status map
@@ -69,8 +76,10 @@ export async function getAdminHealth(
   for (const src of INGEST_SOURCES) {
     const row = ingestMap.get(src);
     ingest[src] = {
-      lastStartedAt: row?.last_started_at != null ? new Date(row.last_started_at).toISOString() : null,
-      lastFinishedAt: row?.last_finished_at != null ? new Date(row.last_finished_at).toISOString() : null,
+      lastStartedAt:
+        row?.last_started_at != null ? new Date(row.last_started_at).toISOString() : null,
+      lastFinishedAt:
+        row?.last_finished_at != null ? new Date(row.last_finished_at).toISOString() : null,
       lastStatus: row?.last_status ?? null,
       recordsProcessed: row?.records_processed ?? null,
       recordsFailed: row?.records_failed ?? null,
@@ -85,9 +94,12 @@ export async function getAdminHealth(
   ]);
 
   const lastHourAgo = now - 3_600_000;
-  const lastHourBlocksRes = await db.prepare(
-    `SELECT COUNT(*) AS cnt FROM audit_log WHERE occurred_at > ? AND action LIKE 'RATE_LIMITED%'`,
-  ).bind(lastHourAgo).first<{ cnt: number }>();
+  const lastHourBlocksRes = await db
+    .prepare(
+      `SELECT COUNT(*) AS cnt FROM audit_log WHERE occurred_at > ? AND action LIKE 'RATE_LIMITED%'`,
+    )
+    .bind(lastHourAgo)
+    .first<{ cnt: number }>();
 
   return {
     generatedAt: new Date(now).toISOString(),
@@ -102,7 +114,7 @@ export async function getAdminHealth(
     queues: { retryDepth, dlqDepth },
     rateLimits: {
       lastHourBlocks: lastHourBlocksRes?.cnt ?? 0,
-      topIps: (rateLimitRows.results ?? []).map(r => ({ ip: r.client_ip, blocks: r.blocks })),
+      topIps: (rateLimitRows.results ?? []).map((r) => ({ ip: r.client_ip, blocks: r.blocks })),
     },
   };
 }
@@ -119,15 +131,14 @@ function computeStaleness(
   return 'red';
 }
 
-async function getQueueDepth(
-  accountId: string,
-  token: string,
-  name: string,
-): Promise<number> {
+async function getQueueDepth(accountId: string, token: string, name: string): Promise<number> {
   try {
-    const res = await fetch(`${CF_API}/accounts/${accountId}/queues?name=${encodeURIComponent(name)}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const res = await fetch(
+      `${CF_API}/accounts/${accountId}/queues?name=${encodeURIComponent(name)}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
     if (!res.ok) return -1;
     const data = await res.json<{ result?: Array<{ consumers_total_count?: number }> }>();
     return data.result?.[0]?.consumers_total_count ?? -1;

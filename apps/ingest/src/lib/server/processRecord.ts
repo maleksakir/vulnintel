@@ -1,7 +1,7 @@
-import type { NormalizedCveRecord, EpssPatch, KevPatch } from '@threat-lens/contracts';
+import type { EpssPatch, KevPatch, NormalizedCveRecord } from '@threat-lens/contracts';
 import type { Env } from '../../types';
-import { computeTextHash, computeStateHash } from './hash';
-import { embed, buildEmbedText } from './embed';
+import { buildEmbedText, embed } from './embed';
+import { computeStateHash, computeTextHash } from './hash';
 
 interface CurrentRow {
   text_hash: string;
@@ -35,7 +35,7 @@ export async function processRecord(
   opts: ProcessOptions = {},
 ): Promise<void> {
   const t0 = Date.now();
-  const topVendors = [...new Set(record.cpes.map(c => c.vendor))].sort().slice(0, 5);
+  const topVendors = [...new Set(record.cpes.map((c) => c.vendor))].sort().slice(0, 5);
   const topVendor = topVendors[0] ?? null;
 
   const textHash = await computeTextHash(record);
@@ -48,7 +48,9 @@ export async function processRecord(
      FROM cve c
      LEFT JOIN cve_state s USING (cve_id)
      WHERE c.cve_id = ?`,
-  ).bind(record.cveId).first<CurrentRow>();
+  )
+    .bind(record.cveId)
+    .first<CurrentRow>();
 
   const kevListed = (cur?.kev_listed ?? 0) === 1;
   const epssScore = cur?.epss_score ?? null;
@@ -75,7 +77,16 @@ export async function processRecord(
   // ── D1 writes ────────────────────────────────────────────────────────────
   if (!forceVec) {
     try {
-      await writeD1(record, textHash, stateHash, kevListed, epssScore, epssPercentile, Date.now(), env);
+      await writeD1(
+        record,
+        textHash,
+        stateHash,
+        kevListed,
+        epssScore,
+        epssPercentile,
+        Date.now(),
+        env,
+      );
     } catch (err) {
       await env.RETRY_QUEUE.send({
         attempt: 1,
@@ -107,11 +118,13 @@ export async function processRecord(
     }
 
     try {
-      await env.VECTORIZE.upsert([{
-        id: record.cveId,
-        values: vec,
-        metadata: buildVecMeta(record, kevListed, epssPercentile, topVendor),
-      }]);
+      await env.VECTORIZE.upsert([
+        {
+          id: record.cveId,
+          values: vec,
+          metadata: buildVecMeta(record, kevListed, epssPercentile, topVendor),
+        },
+      ]);
     } catch (err) {
       await env.RETRY_QUEUE.send({
         attempt: 1,
@@ -120,7 +133,11 @@ export async function processRecord(
         normalizedRecord: record,
         opType: 'VECTORIZE_ONLY',
         vector: vec,
-        lastError: { code: 'VECTORIZE_UPSERT_FAILED', message: String(err), occurredAt: Date.now() },
+        lastError: {
+          code: 'VECTORIZE_UPSERT_FAILED',
+          message: String(err),
+          occurredAt: Date.now(),
+        },
       });
       throw err;
     }
@@ -128,11 +145,13 @@ export async function processRecord(
     // Metadata-only update — reuse stored vector to avoid an AI call.
     const [existing] = await env.VECTORIZE.getByIds([record.cveId]);
     if (existing?.values?.length) {
-      await env.VECTORIZE.upsert([{
-        id: record.cveId,
-        values: existing.values,
-        metadata: buildVecMeta(record, kevListed, epssPercentile, topVendor),
-      }]);
+      await env.VECTORIZE.upsert([
+        {
+          id: record.cveId,
+          values: existing.values,
+          metadata: buildVecMeta(record, kevListed, epssPercentile, topVendor),
+        },
+      ]);
     }
     // No existing vector → Vectorize will be backfilled on the next daily run.
   }
@@ -140,10 +159,14 @@ export async function processRecord(
   ctx.waitUntil(env.CACHE.delete(`cve:${record.cveId}`));
 
   emitAnalytics(
-    env, record,
+    env,
+    record,
     textChanged ? 'FULL' : 'STATE',
     forceAll,
-    t0, kevListed, epssScore, epssPercentile,
+    t0,
+    kevListed,
+    epssScore,
+    epssPercentile,
   );
 }
 
@@ -159,12 +182,14 @@ export async function applyKevPatch(
   const cur = await env.DB.prepare(
     `SELECT kev_listed, kev_date_added, kev_due_date, kev_required_action
      FROM cve_state WHERE cve_id = ?`,
-  ).bind(patch.cveId).first<{
-    kev_listed: number;
-    kev_date_added: number | null;
-    kev_due_date: number | null;
-    kev_required_action: string | null;
-  }>();
+  )
+    .bind(patch.cveId)
+    .first<{
+      kev_listed: number;
+      kev_date_added: number | null;
+      kev_due_date: number | null;
+      kev_required_action: string | null;
+    }>();
 
   const unchanged =
     cur?.kev_listed === 1 &&
@@ -186,7 +211,9 @@ export async function applyKevPatch(
        kev_due_date        = excluded.kev_due_date,
        kev_required_action = excluded.kev_required_action,
        state_updated_at    = excluded.state_updated_at`,
-  ).bind(patch.cveId, patch.kevDateAdded, patch.kevDueDate, patch.kevRequiredAction, Date.now()).run();
+  )
+    .bind(patch.cveId, patch.kevDateAdded, patch.kevDueDate, patch.kevRequiredAction, Date.now())
+    .run();
 
   // Recompute state_hash and propagate to cve row + Vectorize.
   const row = await env.DB.prepare(
@@ -195,37 +222,43 @@ export async function applyKevPatch(
             (SELECT vendor FROM cpe WHERE cve_id = c.cve_id LIMIT 1) AS top_vendor
      FROM cve c LEFT JOIN cve_state s USING (cve_id)
      WHERE c.cve_id = ?`,
-  ).bind(patch.cveId).first<{
-    severity: string;
-    cvss_base: number | null;
-    epss_score: number | null;
-    epss_percentile: number | null;
-    top_vendor: string | null;
-  }>();
+  )
+    .bind(patch.cveId)
+    .first<{
+      severity: string;
+      cvss_base: number | null;
+      epss_score: number | null;
+      epss_percentile: number | null;
+      top_vendor: string | null;
+    }>();
 
   if (row) {
     const newStateHash = await computeStateHash(
-      row.severity, row.cvss_base, true, row.epss_score, row.top_vendor,
+      row.severity,
+      row.cvss_base,
+      true,
+      row.epss_score,
+      row.top_vendor,
     );
     await env.DB.prepare('UPDATE cve SET state_hash = ? WHERE cve_id = ?')
-      .bind(newStateHash, patch.cveId).run();
+      .bind(newStateHash, patch.cveId)
+      .run();
 
     const [existing] = await env.VECTORIZE.getByIds([patch.cveId]);
     if (existing?.values?.length) {
       const meta = (existing.metadata ?? {}) as Record<string, string | number | boolean>;
-      await env.VECTORIZE.upsert([{
-        id: patch.cveId,
-        values: existing.values,
-        metadata: { ...meta, kev_listed: 1 },
-      }]);
+      await env.VECTORIZE.upsert([
+        {
+          id: patch.cveId,
+          values: existing.values,
+          metadata: { ...meta, kev_listed: 1 },
+        },
+      ]);
     }
   }
 
   ctx.waitUntil(
-    Promise.all([
-      env.CACHE.delete(`cve:${patch.cveId}`),
-      env.CACHE.delete('threat:kev:list'),
-    ]),
+    Promise.all([env.CACHE.delete(`cve:${patch.cveId}`), env.CACHE.delete('threat:kev:list')]),
   );
 
   env.ANALYTICS.writeDataPoint({
@@ -260,7 +293,9 @@ export async function applyEpssPatchBatch(
   const placeholders = patches.map(() => '?').join(',');
   const { results } = await env.DB.prepare(
     `SELECT cve_id, epss_score, epss_percentile FROM cve_state WHERE cve_id IN (${placeholders})`,
-  ).bind(...patches.map((p) => p.cveId)).all<EpssStateRow>();
+  )
+    .bind(...patches.map((p) => p.cveId))
+    .all<EpssStateRow>();
 
   const current = new Map(results.map((r) => [r.cve_id, r]));
 
@@ -306,8 +341,9 @@ async function writeD1(
 
   await db.batch([
     // CVE row
-    db.prepare(
-      `INSERT INTO cve
+    db
+      .prepare(
+        `INSERT INTO cve
          (cve_id, published_at, last_modified_at, description,
           cvss_version, cvss_vector, cvss_base, cvss_exploitability, cvss_impact,
           severity, source, text_hash, state_hash, ingested_at)
@@ -325,31 +361,43 @@ async function writeD1(
          text_hash           = excluded.text_hash,
          state_hash          = excluded.state_hash,
          ingested_at         = excluded.ingested_at`,
-    ).bind(
-      record.cveId, record.publishedAt, record.lastModifiedAt, record.description,
-      record.cvss?.version ?? null,
-      record.cvss?.vector ?? null,
-      record.cvss?.base ?? null,
-      record.cvss?.exploitability ?? null,
-      record.cvss?.impact ?? null,
-      record.severity, record.source, textHash, stateHash, now,
-    ),
+      )
+      .bind(
+        record.cveId,
+        record.publishedAt,
+        record.lastModifiedAt,
+        record.description,
+        record.cvss?.version ?? null,
+        record.cvss?.vector ?? null,
+        record.cvss?.base ?? null,
+        record.cvss?.exploitability ?? null,
+        record.cvss?.impact ?? null,
+        record.severity,
+        record.source,
+        textHash,
+        stateHash,
+        now,
+      ),
     // cve_state — preserve existing kev fields
-    db.prepare(
-      `INSERT INTO cve_state
+    db
+      .prepare(
+        `INSERT INTO cve_state
          (cve_id, kev_listed, epss_score, epss_percentile, state_updated_at)
        VALUES (?, ?, ?, ?, ?)
        ON CONFLICT (cve_id) DO UPDATE SET
          epss_score       = COALESCE(excluded.epss_score, epss_score),
          epss_percentile  = COALESCE(excluded.epss_percentile, epss_percentile),
          state_updated_at = excluded.state_updated_at`,
-    ).bind(record.cveId, kevListed ? 1 : 0, epssScore, epssPercentile, now),
+      )
+      .bind(record.cveId, kevListed ? 1 : 0, epssScore, epssPercentile, now),
     // provenance
-    db.prepare(
-      `INSERT INTO cve_source_provenance (cve_id, source, last_seen_at)
+    db
+      .prepare(
+        `INSERT INTO cve_source_provenance (cve_id, source, last_seen_at)
        VALUES (?, ?, ?)
        ON CONFLICT (cve_id, source) DO UPDATE SET last_seen_at = excluded.last_seen_at`,
-    ).bind(record.cveId, record.source, now),
+      )
+      .bind(record.cveId, record.source, now),
   ]);
 
   // CWEs
@@ -359,8 +407,12 @@ async function writeD1(
     ];
     for (const cweId of record.cwes) {
       cweStmts.push(
-        db.prepare('INSERT OR IGNORE INTO cwe (cwe_id, name, category) VALUES (?, NULL, NULL)').bind(cweId),
-        db.prepare('INSERT OR IGNORE INTO cve_cwe (cve_id, cwe_id) VALUES (?, ?)').bind(record.cveId, cweId),
+        db
+          .prepare('INSERT OR IGNORE INTO cwe (cwe_id, name, category) VALUES (?, NULL, NULL)')
+          .bind(cweId),
+        db
+          .prepare('INSERT OR IGNORE INTO cve_cwe (cve_id, cwe_id) VALUES (?, ?)')
+          .bind(record.cveId, cweId),
       );
     }
     await db.batch(cweStmts);
@@ -374,21 +426,27 @@ async function writeD1(
     ];
     for (const cpe of cpes) {
       cpeStmts.push(
-        db.prepare(
-          `INSERT INTO cpe
+        db
+          .prepare(
+            `INSERT INTO cpe
              (cve_id, cpe_uri, part, vendor, product, version,
               version_start_including, version_start_excluding,
               version_end_including,   version_end_excluding, vulnerable)
            VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-        ).bind(
-          record.cveId, cpe.cpeUri, cpe.part ?? null, cpe.vendor, cpe.product,
-          cpe.version ?? null,
-          cpe.versionStartIncluding ?? null,
-          cpe.versionStartExcluding ?? null,
-          cpe.versionEndIncluding ?? null,
-          cpe.versionEndExcluding ?? null,
-          cpe.vulnerable ? 1 : 0,
-        ),
+          )
+          .bind(
+            record.cveId,
+            cpe.cpeUri,
+            cpe.part ?? null,
+            cpe.vendor,
+            cpe.product,
+            cpe.version ?? null,
+            cpe.versionStartIncluding ?? null,
+            cpe.versionStartExcluding ?? null,
+            cpe.versionEndIncluding ?? null,
+            cpe.versionEndExcluding ?? null,
+            cpe.vulnerable ? 1 : 0,
+          ),
       );
     }
     await db.batch(cpeStmts);
@@ -402,7 +460,8 @@ async function writeD1(
     ];
     for (const ref of refs) {
       refStmts.push(
-        db.prepare('INSERT OR IGNORE INTO cve_reference (cve_id, url, tags) VALUES (?, ?, ?)')
+        db
+          .prepare('INSERT OR IGNORE INTO cve_reference (cve_id, url, tags) VALUES (?, ?, ?)')
           .bind(record.cveId, ref.url, ref.tags.join(',') || null),
       );
     }

@@ -1,7 +1,7 @@
 import { applyD1Migrations, reset } from 'cloudflare:test';
 import { env } from 'cloudflare:workers';
-import { afterEach, beforeEach, vi } from 'vitest';
 import type { NormalizedCveRecord } from '@threat-lens/contracts';
+import { afterEach, beforeEach, vi } from 'vitest';
 import type { Env } from '../src/types';
 
 /** The `env` binding, cast to this Worker's real `Env` shape for call sites. */

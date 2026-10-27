@@ -15,9 +15,12 @@
     "deploy:ingest": "pnpm --filter=threat-lens-ingest deploy",
     "deploy:ingest:staging": "pnpm --filter=threat-lens-ingest deploy:staging",
     "deploy:staging": "pnpm --filter=threat-lens-app deploy:staging && pnpm --filter=threat-lens-ingest deploy:staging",
-    "types:app": "pnpm --filter=threat-lens-app types"
+    "types:app": "pnpm --filter=threat-lens-app types",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "2.6.3",
     "typescript": "^5.8.3"
   }
 }

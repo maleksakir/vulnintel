@@ -1,7 +1,7 @@
-import type { RequestHandler } from './$types';
+import { errorResponse } from '$lib/server/errorResponse';
 import { searchCves } from '$lib/server/queries/searchCves';
 import { validateSearchRequest } from '$lib/server/validate/index';
-import { errorResponse } from '$lib/server/errorResponse';
+import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, platform, locals }) => {
   let body: unknown;
@@ -25,9 +25,24 @@ export const POST: RequestHandler = async ({ request, platform, locals }) => {
       platform!.env.DB.prepare(
         `INSERT INTO audit_log (occurred_at, client_ip, cf_ray, route, action, detail_json)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).bind(Date.now(), locals.clientIp, locals.cfRay, '/api/search', 'RATE_LIMITED:GLOBAL_QUOTA_EXHAUSTED', null).run(),
+      )
+        .bind(
+          Date.now(),
+          locals.clientIp,
+          locals.cfRay,
+          '/api/search',
+          'RATE_LIMITED:GLOBAL_QUOTA_EXHAUSTED',
+          null,
+        )
+        .run(),
     );
-    return errorResponse('GLOBAL_QUOTA_EXHAUSTED', 'Daily search quota exceeded. Try again tomorrow.', locals.cfRay, 429, { retryAfterSeconds: 3600 });
+    return errorResponse(
+      'GLOBAL_QUOTA_EXHAUSTED',
+      'Daily search quota exceeded. Try again tomorrow.',
+      locals.cfRay,
+      429,
+      { retryAfterSeconds: 3600 },
+    );
   }
 
   if (quotaError === 'RATE_LIMITED') {
@@ -35,9 +50,24 @@ export const POST: RequestHandler = async ({ request, platform, locals }) => {
       platform!.env.DB.prepare(
         `INSERT INTO audit_log (occurred_at, client_ip, cf_ray, route, action, detail_json)
          VALUES (?, ?, ?, ?, ?, ?)`,
-      ).bind(Date.now(), locals.clientIp, locals.cfRay, '/api/search', 'RATE_LIMITED:IP_HOURLY', null).run(),
+      )
+        .bind(
+          Date.now(),
+          locals.clientIp,
+          locals.cfRay,
+          '/api/search',
+          'RATE_LIMITED:IP_HOURLY',
+          null,
+        )
+        .run(),
     );
-    return errorResponse('RATE_LIMITED', 'Per-IP hourly limit reached. Try again in an hour.', locals.cfRay, 429, { retryAfterSeconds: 3600 });
+    return errorResponse(
+      'RATE_LIMITED',
+      'Per-IP hourly limit reached. Try again in an hour.',
+      locals.cfRay,
+      429,
+      { retryAfterSeconds: 3600 },
+    );
   }
 
   return new Response(JSON.stringify(response), {

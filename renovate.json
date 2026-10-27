@@ -1,0 +1,11 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "packageRules": [
+    {
+      "groupName": "Cloudflare Workers packages",
+      "description": "wrangler and all @cloudflare/* packages (workers-types, vitest-plugin, etc.) are used by both apps/app and apps/ingest — bump them together in one PR so the two Workers' versions never drift apart.",
+      "matchPackageNames": ["wrangler", "@cloudflare/*"]
+    }
+  ]
+}

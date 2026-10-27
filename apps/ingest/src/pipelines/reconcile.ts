@@ -1,7 +1,7 @@
-import type { Env } from '../types';
 import { fetchNvdDelta } from '../adapters/nvd';
+import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import { processRecord } from '../lib/server/processRecord';
-import { markIngestStarted, markIngestFinished } from '../lib/server/ingestRun';
+import type { Env } from '../types';
 
 const RECONCILE_WINDOW_DAYS = 30;
 
@@ -41,16 +41,21 @@ export async function runWeeklyReconciliation(env: Env, ctx: ExecutionContext): 
   }
 
   await markIngestFinished(
-    env, 'RECONCILE',
+    env,
+    'RECONCILE',
     lastError && processed === 0 ? 'FAILED' : failed > 0 ? 'PARTIAL' : 'OK',
-    processed, failed, lastError,
+    processed,
+    failed,
+    lastError,
   );
 
   ctx.waitUntil(
-    Promise.resolve(env.ANALYTICS.writeDataPoint({
-      blobs: ['WEEKLY_RECONCILE', lastError ? 'PARTIAL' : 'OK', 'NVD', '', '', '', ''],
-      doubles: [startedAt, Date.now(), processed, failed, Date.now() - startedAt],
-      indexes: ['ingest_run'],
-    })),
+    Promise.resolve(
+      env.ANALYTICS.writeDataPoint({
+        blobs: ['WEEKLY_RECONCILE', lastError ? 'PARTIAL' : 'OK', 'NVD', '', '', '', ''],
+        doubles: [startedAt, Date.now(), processed, failed, Date.now() - startedAt],
+        indexes: ['ingest_run'],
+      }),
+    ),
   );
 }

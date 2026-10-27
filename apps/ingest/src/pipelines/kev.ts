@@ -1,7 +1,7 @@
-import type { Env } from '../types';
 import { fetchKevCatalog } from '../adapters/kev';
+import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import { applyKevPatch } from '../lib/server/processRecord';
-import { markIngestStarted, markIngestFinished } from '../lib/server/ingestRun';
+import type { Env } from '../types';
 
 // KEV fast-lane (cron: 0 */6 * * *).
 // Downloads the full CISA KEV catalog snapshot and applies every entry.
@@ -32,9 +32,12 @@ export async function runKevFastLane(env: Env, ctx: ExecutionContext): Promise<v
   }
 
   await markIngestFinished(
-    env, 'KEV',
+    env,
+    'KEV',
     lastError && processed === 0 ? 'FAILED' : failed > 0 ? 'PARTIAL' : 'OK',
-    processed, failed, lastError,
+    processed,
+    failed,
+    lastError,
   );
 
   ctx.waitUntil(

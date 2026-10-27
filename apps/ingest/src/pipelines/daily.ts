@@ -1,10 +1,10 @@
-import type { Env } from '../types';
-import { fetchNvdDelta } from '../adapters/nvd';
-import { fetchMitreDelta } from '../adapters/mitre';
-import { fetchEpssCsv } from '../adapters/epss';
 import type { EpssPatch } from '@threat-lens/contracts';
-import { processRecord, applyEpssPatchBatch } from '../lib/server/processRecord';
-import { markIngestStarted, markIngestFinished } from '../lib/server/ingestRun';
+import { fetchEpssCsv } from '../adapters/epss';
+import { fetchMitreDelta } from '../adapters/mitre';
+import { fetchNvdDelta } from '../adapters/nvd';
+import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
+import { applyEpssPatchBatch, processRecord } from '../lib/server/processRecord';
+import type { Env } from '../types';
 
 const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety overlap
 const EPSS_BATCH_SIZE = 200; // chunk size for the batched change-detection read
@@ -46,9 +46,12 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   }
 
   await markIngestFinished(
-    env, 'NVD',
+    env,
+    'NVD',
     nvdError ? 'FAILED' : nvdFailed > 0 ? 'PARTIAL' : 'OK',
-    nvdProcessed, nvdFailed, nvdError,
+    nvdProcessed,
+    nvdFailed,
+    nvdError,
   );
 
   // ── MITRE ─────────────────────────────────────────────────────────────────
@@ -71,9 +74,12 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   }
 
   await markIngestFinished(
-    env, 'MITRE',
+    env,
+    'MITRE',
     mitreError ? 'FAILED' : mitreFailed > 0 ? 'PARTIAL' : 'OK',
-    mitreProcessed, mitreFailed, mitreError,
+    mitreProcessed,
+    mitreFailed,
+    mitreError,
   );
 
   // ── EPSS ──────────────────────────────────────────────────────────────────
@@ -108,25 +114,35 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   }
 
   await markIngestFinished(
-    env, 'EPSS',
+    env,
+    'EPSS',
     epssError ? 'FAILED' : epssFailed > 0 ? 'PARTIAL' : 'OK',
-    epssProcessed, epssFailed, epssError,
+    epssProcessed,
+    epssFailed,
+    epssError,
   );
 
   ctx.waitUntil(
-    Promise.resolve(env.ANALYTICS.writeDataPoint({
-      blobs: [
-        'DAILY_DELTA',
-        nvdError ?? mitreError ?? epssError ?? 'OK',
-        'NVD+MITRE+EPSS', '', '', '', '',
-      ],
-      doubles: [
-        startedAt, Date.now(),
-        nvdProcessed + mitreProcessed + epssProcessed,
-        nvdFailed + mitreFailed + epssFailed,
-        Date.now() - startedAt,
-      ],
-      indexes: ['ingest_run'],
-    })),
+    Promise.resolve(
+      env.ANALYTICS.writeDataPoint({
+        blobs: [
+          'DAILY_DELTA',
+          nvdError ?? mitreError ?? epssError ?? 'OK',
+          'NVD+MITRE+EPSS',
+          '',
+          '',
+          '',
+          '',
+        ],
+        doubles: [
+          startedAt,
+          Date.now(),
+          nvdProcessed + mitreProcessed + epssProcessed,
+          nvdFailed + mitreFailed + epssFailed,
+          Date.now() - startedAt,
+        ],
+        indexes: ['ingest_run'],
+      }),
+    ),
   );
 }

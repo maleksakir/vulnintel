@@ -1,7 +1,7 @@
-import type { RequestHandler } from './$types';
-import { getCveDetail } from '$lib/server/queries/getCveDetail';
 import { errorResponse } from '$lib/server/errorResponse';
+import { getCveDetail } from '$lib/server/queries/getCveDetail';
 import { isValidCveId } from '$lib/server/validate/index';
+import type { RequestHandler } from './$types';
 
 const TTL = 300;
 
@@ -10,7 +10,12 @@ export const GET: RequestHandler = async ({ params, platform, locals }) => {
   const cveId = (params.id ?? '').toUpperCase();
 
   if (!isValidCveId(cveId)) {
-    return errorResponse('VALIDATION_ERROR', 'Invalid CVE ID format. Expected CVE-YYYY-NNNNN.', locals.cfRay, 400);
+    return errorResponse(
+      'VALIDATION_ERROR',
+      'Invalid CVE ID format. Expected CVE-YYYY-NNNNN.',
+      locals.cfRay,
+      400,
+    );
   }
 
   // KV cache read

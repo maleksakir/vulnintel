@@ -63,7 +63,9 @@ describe('checkAndIncrementQuota', () => {
     const result = await checkAndIncrementQuota(env.DB, env.RATE_LIMITER, '203.0.113.7');
 
     expect(result).toEqual({ allowed: true });
-    const writeSql = dbPrepare.mock.calls.map(([sql]) => sql).filter((sql) => /^\s*INSERT/i.test(sql));
+    const writeSql = dbPrepare.mock.calls
+      .map(([sql]) => sql)
+      .filter((sql) => /^\s*INSERT/i.test(sql));
     expect(writeSql).toHaveLength(1);
     expect(writeSql[0]).toMatch(/INSERT INTO search_quota_ledger/i);
 

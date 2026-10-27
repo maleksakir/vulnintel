@@ -1,8 +1,8 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
+import type { EpssPatch } from '@threat-lens/contracts';
 import { describe, expect, it } from 'vitest';
 import { applyEpssPatchBatch } from '../src/lib/server/processRecord';
 import { seedCveRow, seedCveState, spyOnBindings, testEnv, useCleanBindings } from './helpers';
-import type { EpssPatch } from '@threat-lens/contracts';
 
 // This is the exact code path that caused the 2026-10-27 KV quota incident:
 // FIRST.org ships a full daily snapshot (250k+ rows), so the per-chunk
@@ -30,7 +30,12 @@ describe('applyEpssPatchBatch', () => {
 
     const spies = spyOnBindings();
     const patches: EpssPatch[] = [
-      { cveId: 'CVE-2026-20001', epssScore: 0.1234, epssPercentile: 0.5, epssUpdatedAt: Date.now() },
+      {
+        cveId: 'CVE-2026-20001',
+        epssScore: 0.1234,
+        epssPercentile: 0.5,
+        epssUpdatedAt: Date.now(),
+      },
       { cveId: 'CVE-2026-20002', epssScore: 0.9, epssPercentile: 0.99, epssUpdatedAt: Date.now() },
     ];
 
@@ -75,7 +80,9 @@ describe('applyEpssPatchBatch', () => {
     const unchanged2 = await testEnv.DB.prepare('SELECT epss_score FROM cve_state WHERE cve_id = ?')
       .bind('CVE-2026-20011')
       .first<{ epss_score: number }>();
-    const changed = await testEnv.DB.prepare('SELECT epss_score, epss_percentile FROM cve_state WHERE cve_id = ?')
+    const changed = await testEnv.DB.prepare(
+      'SELECT epss_score, epss_percentile FROM cve_state WHERE cve_id = ?',
+    )
       .bind('CVE-2026-20012')
       .first<{ epss_score: number; epss_percentile: number }>();
 

@@ -114,7 +114,7 @@ function normalizeMitreRecord(rec: MitreCveRecord): NormalizedCveRecord | null {
   const cna = rec.containers?.cna;
   if (!cna) return null;
 
-  const enDesc = cna.descriptions?.find(d => d.lang === 'en');
+  const enDesc = cna.descriptions?.find((d) => d.lang === 'en');
   if (!enDesc) return null;
 
   const publishedAt = rec.cveMetadata.datePublished
@@ -159,7 +159,7 @@ function normalizeMitreRecord(rec: MitreCveRecord): NormalizedCveRecord | null {
   // Build synthetic CPE entries from affected[]
   const cpes = buildCpesFromAffected(cna.affected ?? []);
 
-  const references = (cna.references ?? []).map(r => ({
+  const references = (cna.references ?? []).map((r) => ({
     url: r.url,
     tags: r.tags ?? [],
   }));
@@ -180,8 +180,8 @@ function normalizeMitreRecord(rec: MitreCveRecord): NormalizedCveRecord | null {
 
 function buildCpesFromAffected(affected: MitreAffected[]) {
   return affected
-    .filter(a => a.vendor && a.product)
-    .map(a => ({
+    .filter((a) => a.vendor && a.product)
+    .map((a) => ({
       cpeUri: `cpe:2.3:a:${slug(a.vendor!)}:${slug(a.product!)}:*:*:*:*:*:*:*:*`,
       part: 'a' as const,
       vendor: a.vendor!,
@@ -206,5 +206,5 @@ function cvssToSeverity(base: number | null): Severity {
 }
 
 function sleep(ms: number): Promise<void> {
-  return new Promise(r => setTimeout(r, ms));
+  return new Promise((r) => setTimeout(r, ms));
 }

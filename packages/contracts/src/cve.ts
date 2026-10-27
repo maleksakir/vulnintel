@@ -26,8 +26,8 @@ export interface NormalizedCpe {
 
 /** Canonical shape produced by the NVD and MITRE adapters. */
 export interface NormalizedCveRecord {
-  cveId: string;          // 'CVE-YYYY-NNNNN'
-  publishedAt: number;    // unix ms
+  cveId: string; // 'CVE-YYYY-NNNNN'
+  publishedAt: number; // unix ms
   lastModifiedAt: number; // unix ms
   description: string;
   cvss: {
@@ -39,7 +39,7 @@ export interface NormalizedCveRecord {
   } | null;
   severity: Severity;
   source: 'NVD' | 'MITRE';
-  cwes: string[];                           // ['CWE-79', 'CWE-89', …]
+  cwes: string[]; // ['CWE-79', 'CWE-89', …]
   cpes: NormalizedCpe[];
   references: { url: string; tags: string[] }[];
 }
@@ -48,8 +48,8 @@ export interface NormalizedCveRecord {
  *  Applies only to cve_state; no cve row is written. */
 export interface KevPatch {
   cveId: string;
-  kevDateAdded: number;       // unix ms
-  kevDueDate: number | null;  // unix ms
+  kevDateAdded: number; // unix ms
+  kevDueDate: number | null; // unix ms
   kevRequiredAction: string;
 }
 
@@ -57,14 +57,14 @@ export interface KevPatch {
  *  Applies only to cve_state; no cve row is written. */
 export interface EpssPatch {
   cveId: string;
-  epssScore: number;      // 0–1
+  epssScore: number; // 0–1
   epssPercentile: number; // 0–1
-  epssUpdatedAt: number;  // unix ms
+  epssUpdatedAt: number; // unix ms
 }
 
 /** Retry queue message shape (Section 3.5.1). */
 export interface RetryMessage {
-  attempt: number;          // 1-based, incremented by the queue on retry
+  attempt: number; // 1-based, incremented by the queue on retry
   source: IngestSource;
   cveId: string;
   normalizedRecord: NormalizedCveRecord;

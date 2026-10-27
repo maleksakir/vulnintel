@@ -1,4 +1,9 @@
-import type { KevListResponse, KevListRow, EpssListResponse, EpssListRow } from '@threat-lens/contracts';
+import type {
+  EpssListResponse,
+  EpssListRow,
+  KevListResponse,
+  KevListRow,
+} from '@threat-lens/contracts';
 
 interface KevDbRow {
   cve_id: string;
@@ -25,7 +30,11 @@ export async function getKevList(
 ): Promise<KevListResponse> {
   let cursorMs: number | null = null;
   if (cursor) {
-    try { cursorMs = parseInt(atob(cursor), 10); } catch { /* ignore */ }
+    try {
+      cursorMs = parseInt(atob(cursor), 10);
+    } catch {
+      /* ignore */
+    }
   }
 
   const bindings: unknown[] = [];
@@ -36,8 +45,9 @@ export async function getKevList(
   }
   bindings.push(limit + 1);
 
-  const result = await db.prepare(
-    `SELECT c.cve_id, c.severity,
+  const result = await db
+    .prepare(
+      `SELECT c.cve_id, c.severity,
             (SELECT vendor FROM cpe WHERE cve_id = c.cve_id LIMIT 1) AS vendor,
             s.kev_date_added, s.kev_due_date, s.kev_required_action
      FROM cve c
@@ -45,13 +55,15 @@ export async function getKevList(
      WHERE s.kev_listed = 1 ${cursorFragment}
      ORDER BY s.kev_date_added DESC
      LIMIT ?`,
-  ).bind(...bindings).all<KevDbRow>();
+    )
+    .bind(...bindings)
+    .all<KevDbRow>();
 
   const rows = result.results;
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
-  const mapped: KevListRow[] = page.map(row => ({
+  const mapped: KevListRow[] = page.map((row) => ({
     cveId: row.cve_id,
     severity: row.severity as KevListRow['severity'],
     vendor: row.vendor ?? 'Unknown',
@@ -76,7 +88,11 @@ export async function getEpssList(
 ): Promise<EpssListResponse> {
   let cursorScore: number | null = null;
   if (cursor) {
-    try { cursorScore = parseFloat(atob(cursor)); } catch { /* ignore */ }
+    try {
+      cursorScore = parseFloat(atob(cursor));
+    } catch {
+      /* ignore */
+    }
   }
 
   const bindings: unknown[] = [];
@@ -87,8 +103,9 @@ export async function getEpssList(
   }
   bindings.push(limit + 1);
 
-  const result = await db.prepare(
-    `SELECT c.cve_id, c.severity,
+  const result = await db
+    .prepare(
+      `SELECT c.cve_id, c.severity,
             (SELECT vendor FROM cpe WHERE cve_id = c.cve_id LIMIT 1) AS vendor,
             s.epss_score, s.epss_percentile, c.cvss_base
      FROM cve c
@@ -96,13 +113,15 @@ export async function getEpssList(
      WHERE s.epss_score IS NOT NULL ${cursorFragment}
      ORDER BY s.epss_score DESC
      LIMIT ?`,
-  ).bind(...bindings).all<EpssDbRow>();
+    )
+    .bind(...bindings)
+    .all<EpssDbRow>();
 
   const rows = result.results;
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
-  const mapped: EpssListRow[] = page.map(row => ({
+  const mapped: EpssListRow[] = page.map((row) => ({
     cveId: row.cve_id,
     severity: row.severity as EpssListRow['severity'],
     vendor: row.vendor ?? 'Unknown',

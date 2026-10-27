@@ -1,4 +1,9 @@
-import type { SearchRequest, SearchResponse, SearchResultItem, SearchFilters } from '@threat-lens/contracts';
+import type {
+  SearchFilters,
+  SearchRequest,
+  SearchResponse,
+  SearchResultItem,
+} from '@threat-lens/contracts';
 import { embed } from '../embed';
 import { checkAndIncrementQuota } from '../quota';
 
@@ -34,7 +39,10 @@ export async function searchCves(
   // Quota check
   const quota = await checkAndIncrementQuota(env.DB, env.RATE_LIMITER, clientIp);
   if (!quota.allowed) {
-    return { response: { results: [], truncated: false }, ...(quota.reason !== undefined && { quotaError: quota.reason }) };
+    return {
+      response: { results: [], truncated: false },
+      ...(quota.reason !== undefined && { quotaError: quota.reason }),
+    };
   }
 
   const ftsRanks = new Map<string, number>(); // cveId → 1-based rank
@@ -54,8 +62,12 @@ export async function searchCves(
     if (fts) {
       const rows = await env.DB.prepare(
         `SELECT cve_id FROM cve_search WHERE cve_search MATCH ? ORDER BY rank LIMIT 200`,
-      ).bind(fts).all<FtsRow>();
-      rows.results.forEach((r, i) => ftsRanks.set(r.cve_id, i + 1));
+      )
+        .bind(fts)
+        .all<FtsRow>();
+      rows.results.forEach((r, i) => {
+        ftsRanks.set(r.cve_id, i + 1);
+      });
     }
   }
 
@@ -84,7 +96,9 @@ export async function searchCves(
         returnMetadata: 'indexed',
         ...(vecFilter && { filter: vecFilter }),
       });
-      vecRes.matches.forEach((m, i) => vecRanks.set(m.id, i + 1));
+      vecRes.matches.forEach((m, i) => {
+        vecRanks.set(m.id, i + 1);
+      });
     } catch {
       // Vectorize unavailable in local dev — search continues with FTS results only
     }
@@ -120,15 +134,20 @@ export async function searchCves(
     if (!row) return false;
     if (req.filters?.vendor?.length) {
       const v = vendorMap.get(id) ?? [];
-      if (!req.filters.vendor.some(fv => v.includes(fv))) return false;
+      if (!req.filters.vendor.some((fv) => v.includes(fv))) return false;
     }
     if (req.filters?.publishedSince) {
       const since = new Date(req.filters.publishedSince).getTime();
       if (row.published_at < since) return false;
     }
     if (req.filters?.kev === true && row.kev_listed !== 1) return false;
-    if (req.filters?.severity?.length && !req.filters.severity.includes(row.severity as SearchResultItem['severity'])) return false;
-    if (req.filters?.minCvss !== undefined && (row.cvss_base ?? 0) < req.filters.minCvss) return false;
+    if (
+      req.filters?.severity?.length &&
+      !req.filters.severity.includes(row.severity as SearchResultItem['severity'])
+    )
+      return false;
+    if (req.filters?.minCvss !== undefined && (row.cvss_base ?? 0) < req.filters.minCvss)
+      return false;
     return true;
   });
 
@@ -161,13 +180,16 @@ async function fetchCveMeta(ids: string[], db: D1Database): Promise<Map<string, 
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
     const ph = chunk.map(() => '?').join(',');
-    const rows = await db.prepare(
-      `SELECT c.cve_id, c.severity, c.cvss_base, c.published_at, c.description,
+    const rows = await db
+      .prepare(
+        `SELECT c.cve_id, c.severity, c.cvss_base, c.published_at, c.description,
               COALESCE(s.kev_listed, 0) AS kev_listed,
               s.epss_percentile
        FROM cve c LEFT JOIN cve_state s USING (cve_id)
        WHERE c.cve_id IN (${ph})`,
-    ).bind(...chunk).all<CveMetaRow>();
+      )
+      .bind(...chunk)
+      .all<CveMetaRow>();
     for (const row of rows.results) map.set(row.cve_id, row);
   }
   return map;
@@ -178,11 +200,14 @@ async function fetchVendors(ids: string[], db: D1Database): Promise<Map<string, 
   for (let i = 0; i < ids.length; i += 100) {
     const chunk = ids.slice(i, i + 100);
     const ph = chunk.map(() => '?').join(',');
-    const rows = await db.prepare(
-      `SELECT cve_id, GROUP_CONCAT(DISTINCT vendor) AS vendors
+    const rows = await db
+      .prepare(
+        `SELECT cve_id, GROUP_CONCAT(DISTINCT vendor) AS vendors
        FROM cpe WHERE cve_id IN (${ph})
        GROUP BY cve_id`,
-    ).bind(...chunk).all<VendorRow>();
+      )
+      .bind(...chunk)
+      .all<VendorRow>();
     for (const row of rows.results) {
       map.set(row.cve_id, row.vendors ? row.vendors.split(',').filter(Boolean) : []);
     }

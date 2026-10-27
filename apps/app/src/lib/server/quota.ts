@@ -27,18 +27,26 @@ export async function checkAndIncrementQuota(
   const now = new Date();
   const day = now.toISOString().slice(0, 10); // YYYY-MM-DD
 
-  const orgRow = await db.prepare('SELECT query_count FROM search_quota_ledger WHERE day = ?')
-    .bind(day).first<{ query_count: number }>();
+  const orgRow = await db
+    .prepare('SELECT query_count FROM search_quota_ledger WHERE day = ?')
+    .bind(day)
+    .first<{ query_count: number }>();
 
   if ((orgRow?.query_count ?? 0) >= ORG_DAILY_LIMIT) {
     return { allowed: false, reason: 'GLOBAL_QUOTA_EXHAUSTED' };
   }
 
   // Increment best-effort — quota enforcement doesn't need perfect accuracy.
-  await db.prepare(
-    `INSERT INTO search_quota_ledger (day, query_count) VALUES (?, 1)
+  await db
+    .prepare(
+      `INSERT INTO search_quota_ledger (day, query_count) VALUES (?, 1)
      ON CONFLICT (day) DO UPDATE SET query_count = query_count + 1`,
-  ).bind(day).run().catch(() => { /* best-effort */ });
+    )
+    .bind(day)
+    .run()
+    .catch(() => {
+      /* best-effort */
+    });
 
   return { allowed: true };
 }

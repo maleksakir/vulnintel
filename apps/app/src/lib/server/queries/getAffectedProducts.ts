@@ -1,4 +1,8 @@
-import type { AffectedProductsRequest, AffectedProductsResponse, AffectedProductRow } from '@threat-lens/contracts';
+import type {
+  AffectedProductRow,
+  AffectedProductsRequest,
+  AffectedProductsResponse,
+} from '@threat-lens/contracts';
 
 interface DbRow {
   vendor: string;
@@ -52,15 +56,14 @@ export async function getAffectedProducts(
     bindings.push(cursorVendor, cursorVendor, cursorProduct);
   }
 
-  const whereClause = whereFragments.length > 0
-    ? 'WHERE ' + whereFragments.join(' AND ')
-    : '';
+  const whereClause = whereFragments.length > 0 ? 'WHERE ' + whereFragments.join(' AND ') : '';
 
   // Fetch limit+1 to detect if there's a next page.
   bindings.push(limit + 1);
 
-  const result = await db.prepare(
-    `SELECT p.vendor, p.product,
+  const result = await db
+    .prepare(
+      `SELECT p.vendor, p.product,
             COUNT(DISTINCT p.cve_id)           AS cve_count,
             MAX(c.cve_id)                      AS latest_cve_id,
             MAX(c.published_at)                AS latest_published_at,
@@ -72,13 +75,15 @@ export async function getAffectedProducts(
      GROUP BY p.vendor, p.product
      ORDER BY p.vendor ASC, p.product ASC
      LIMIT ?`,
-  ).bind(...bindings).all<DbRow>();
+    )
+    .bind(...bindings)
+    .all<DbRow>();
 
   const rows = result.results;
   const hasMore = rows.length > limit;
   const pageRows = hasMore ? rows.slice(0, limit) : rows;
 
-  const mapped: AffectedProductRow[] = pageRows.map(row => ({
+  const mapped: AffectedProductRow[] = pageRows.map((row) => ({
     vendor: row.vendor,
     product: row.product,
     versionRange: '*',

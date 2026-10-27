@@ -1,6 +1,6 @@
-import type { PageServerLoad } from './$types';
 import type { Severity } from '@threat-lens/contracts';
 import { searchCves } from '$lib/server/queries/searchCves';
+import type { PageServerLoad } from './$types';
 
 const VALID_SEVERITIES = new Set<string>(['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE']);
 

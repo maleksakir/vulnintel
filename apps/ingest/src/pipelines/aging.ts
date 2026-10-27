@@ -1,5 +1,5 @@
+import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import type { Env } from '../types';
-import { markIngestStarted, markIngestFinished } from '../lib/server/ingestRun';
 
 const RETENTION_MONTHS = 24;
 const QUOTA_RETENTION_DAYS = 7;
@@ -31,7 +31,9 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
          AND cve_id NOT IN (
            SELECT cve_id FROM cve_state WHERE kev_listed = 1
          )`,
-    ).bind(cutoffMs).run();
+    )
+      .bind(cutoffMs)
+      .run();
 
     agedOut = result.meta.changes ?? 0;
 
@@ -69,20 +71,24 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
        FROM cve`,
     ).first<{
       total_cves: number;
-      critical: number; high: number; medium: number; low: number; none_sev: number;
+      critical: number;
+      high: number;
+      medium: number;
+      low: number;
+      none_sev: number;
       kev_listed: number;
     }>();
 
     if (counts) {
       const metrics: Array<[string, number]> = [
-        ['total_cves',        counts.total_cves ?? 0],
+        ['total_cves', counts.total_cves ?? 0],
         ['severity_critical', counts.critical ?? 0],
-        ['severity_high',     counts.high ?? 0],
-        ['severity_medium',   counts.medium ?? 0],
-        ['severity_low',      counts.low ?? 0],
-        ['severity_none',     counts.none_sev ?? 0],
-        ['kev_listed',        counts.kev_listed ?? 0],
-        ['aged_out',          agedOut],
+        ['severity_high', counts.high ?? 0],
+        ['severity_medium', counts.medium ?? 0],
+        ['severity_low', counts.low ?? 0],
+        ['severity_none', counts.none_sev ?? 0],
+        ['kev_listed', counts.kev_listed ?? 0],
+        ['aged_out', agedOut],
       ];
 
       await env.DB.batch(
@@ -109,18 +115,16 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
     lastError = String(err);
   }
 
-  await markIngestFinished(
-    env, 'AGING',
-    lastError ? 'FAILED' : 'OK',
-    agedOut, 0, lastError,
-  );
+  await markIngestFinished(env, 'AGING', lastError ? 'FAILED' : 'OK', agedOut, 0, lastError);
 
   ctx.waitUntil(
-    Promise.resolve(env.ANALYTICS.writeDataPoint({
-      blobs: ['AGING_SWEEP', lastError ? 'FAILED' : 'OK', 'AGING', '', '', '', ''],
-      doubles: [startedAt, Date.now(), agedOut, 0, Date.now() - startedAt],
-      indexes: ['ingest_run'],
-    })),
+    Promise.resolve(
+      env.ANALYTICS.writeDataPoint({
+        blobs: ['AGING_SWEEP', lastError ? 'FAILED' : 'OK', 'AGING', '', '', '', ''],
+        doubles: [startedAt, Date.now(), agedOut, 0, Date.now() - startedAt],
+        indexes: ['ingest_run'],
+      }),
+    ),
   );
 }
 
