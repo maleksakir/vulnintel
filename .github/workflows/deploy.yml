@@ -1,0 +1,130 @@
+name: Deploy
+
+# Gated on CI (the workflow named "CI" in ci.yml) actually succeeding on
+# main — not just "push to main" — via workflow_run. `needs:` can't express
+# this because needs only works between jobs in the SAME workflow file, and
+# ci.yml / deploy.yml are deliberately separate files.
+#
+# workflow_run always evaluates the workflow file as it exists on the
+# default branch and does NOT check out the commit that triggered it by
+# default, so every job below explicitly checks out
+# github.event.workflow_run.head_sha.
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+
+jobs:
+  deploy-staging:
+    name: Deploy to staging
+    # workflow_dispatch has no workflow_run event, so only gate on
+    # conclusion when this run *was* triggered by workflow_run.
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (CI-validated commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # apps/ingest has no build step — wrangler bundles src/index.ts
+      # directly at deploy time. apps/app needs its SvelteKit build output
+      # (.svelte-kit/cloudflare/_worker.js) to exist first; wrangler.toml
+      # points straight at that generated file.
+      - name: Build apps/app
+        run: pnpm --filter=threat-lens-app build
+
+      - name: Deploy apps/ingest to staging
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          packageManager: pnpm
+          workingDirectory: apps/ingest
+          command: deploy --env staging
+
+      - name: Deploy apps/app to staging
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: apps/app
+          command: deploy --env staging
+
+  # Separate job, gated behind the GitHub Environment "production" (required
+  # reviewers configured on that Environment in repo Settings → Environments
+  # — not created by this workflow). Nothing here runs without manual
+  # approval, even after a successful staging deploy.
+  deploy-production:
+    name: Deploy to production (manual approval)
+    needs: deploy-staging
+    # A custom `if:` on a job that has `needs:` REPLACES the implicit
+    # success-of-needs check GitHub would otherwise add — so that check is
+    # spelled out explicitly here; without it, this job could still become
+    # eligible for approval after a failed staging deploy.
+    if: |
+      needs.deploy-staging.result == 'success' &&
+      (github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment:
+      name: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    steps:
+      - name: Checkout (CI-validated commit)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Setup Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build apps/app
+        run: pnpm --filter=threat-lens-app build
+
+      - name: Deploy apps/ingest to production
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: apps/ingest
+          command: deploy
+
+      - name: Deploy apps/app to production
+        uses: cloudflare/wrangler-action@953926a2e2182532811c01a25e53647d93bf07c0 # v4.1.3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: apps/app
+          command: deploy
