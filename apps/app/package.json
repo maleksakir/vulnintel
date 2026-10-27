@@ -11,9 +11,11 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
     "deploy": "wrangler deploy",
     "deploy:staging": "wrangler deploy --env staging",
-    "types": "wrangler types --env-interface CloudflareEnv"
+    "types": "wrangler types --env-interface CloudflareEnv",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.8",
     "@cloudflare/workers-types": "^4.20250522.0",
     "@sveltejs/adapter-cloudflare": "^5.0.1",
     "@sveltejs/kit": "^2.21.0",
@@ -22,6 +24,7 @@
     "svelte-check": "^4.1.6",
     "typescript": "^5.8.3",
     "vite": "^6.3.5",
+    "vitest": "^5.0.5",
     "wrangler": "^4.14.4"
   },
   "dependencies": {

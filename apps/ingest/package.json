@@ -8,11 +8,14 @@
     "deploy": "wrangler deploy --env staging",
     "deploy:prod": "wrangler deploy",
     "check": "tsc --noEmit",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.4.8",
     "@cloudflare/workers-types": "^4.20250522.0",
     "typescript": "^5.8.3",
+    "vitest": "^5.0.5",
     "wrangler": "^4.14.4"
   },
   "dependencies": {
