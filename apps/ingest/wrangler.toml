@@ -7,6 +7,12 @@ compatibility_flags = ["nodejs_compat"]
 # and the retry queue. Workers.dev route is disabled in the dashboard.
 workers_dev = false
 
+# Native Workers Logs — free, searchable in the dashboard. Especially useful
+# here: this is the worker that silently drifted its cron schedule and blew
+# the KV quota with no alerting in place before today.
+[observability]
+enabled = true
+
 # Cron schedule. Each cron expression dispatches to a distinct pipeline
 # inside the scheduled() handler. Full dispatch table is in Section 5.1.1.
 [triggers]

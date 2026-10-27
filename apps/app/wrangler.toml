@@ -3,6 +3,12 @@ main = ".svelte-kit/cloudflare/_worker.js"
 compatibility_date = "2026-05-22"
 compatibility_flags = ["nodejs_compat"]
 
+# Native Workers Logs — free, searchable in the dashboard. There was no
+# working alerting/observability at all before this (the legacy stack's
+# Alertmanager setup pointed at a dead receiver and doesn't apply here).
+[observability]
+enabled = true
+
 # Static assets emitted by adapter-cloudflare. The SPA not-found handling
 # routes deep-link cold loads (e.g. /cve/CVE-2026-12345 typed directly)
 # to the worker entry instead of returning a static 404.
