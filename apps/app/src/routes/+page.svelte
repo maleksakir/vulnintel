@@ -1,11 +1,40 @@
 <script lang="ts">
   import type { PageData } from './$types';
+  import ChartIsland from '$lib/ui/charts/ChartIsland.svelte';
+  import {
+    dailyTableRows,
+    fillDailySeries,
+    severityDistribution,
+    severityTableRows,
+  } from '$lib/ui/charts/chartData';
 
   interface Props { data: PageData }
   let { data }: Props = $props();
 
   function pct(n: number) { return (n * 100).toFixed(1) + '%'; }
   function fmt(n: number) { return n.toLocaleString(); }
+
+  // getMetrics('90d') queries `published_at > now - 90d`, i.e. 91 UTC days.
+  const WINDOW_DAYS = 90;
+
+  // Charts are client-only islands (dynamic import in onMount — see
+  // ChartIsland.svelte): server-rendering LayerChart SVG blows the Workers
+  // Free 10 ms CPU budget. Never import the chart components statically here.
+  // `import.meta.env.SSR` is a literal `true` in the server build, so the
+  // import() is dead code there and LayerChart (~1.2 MB) never ships in the
+  // worker bundle at all — no cold-start parse cost, and no way to run it.
+  const SERVER_ONLY = () => Promise.reject(new Error('chart islands are client-only'));
+  const loadSeverityChart = () =>
+    import.meta.env.SSR ? SERVER_ONLY() : import('$lib/ui/charts/SeverityChart.svelte');
+  const loadDailyTrendChart = () =>
+    import.meta.env.SSR ? SERVER_ONLY() : import('$lib/ui/charts/DailyTrendChart.svelte');
+
+  const severity = $derived(severityDistribution(data.series.severityDistribution));
+  const severityTotal = $derived(severity.reduce((sum, d) => sum + d.count, 0));
+  const velocity = $derived(fillDailySeries(data.series.publicationVelocity, data.generatedAt, WINDOW_DAYS));
+  const velocityTotal = $derived(velocity.reduce((sum, d) => sum + d.count, 0));
+  const kevInflow = $derived(fillDailySeries(data.series.kevInflow, data.generatedAt, WINDOW_DAYS));
+  const kevInflowTotal = $derived(kevInflow.reduce((sum, d) => sum + d.count, 0));
 </script>
 
 <svelte:head>
@@ -42,40 +71,35 @@
     <!-- Severity distribution -->
     <section class="chart-card" aria-labelledby="chart-severity-heading">
       <h2 id="chart-severity-heading" class="chart-title">Severity Distribution</h2>
-      <div class="bar-chart" role="list">
-        {#each data.series.severityDistribution as row}
-          {@const total = data.series.severityDistribution.reduce((s, r) => s + r.count, 0)}
-          {@const pctVal = total > 0 ? (row.count / total) * 100 : 0}
-          <div class="bar-row" role="listitem">
-            <span class="bar-label badge--{row.severity.toLowerCase()}">{row.severity}</span>
-            <div class="bar-track" title="{row.count.toLocaleString()} CVEs">
-              <div class="bar-fill bar-fill--{row.severity.toLowerCase()}" style="width:{pctVal.toFixed(1)}%"></div>
-            </div>
-            <span class="bar-count">{fmt(row.count)}</span>
-          </div>
-        {/each}
-      </div>
+      {#if severityTotal > 0}
+        <ChartIsland
+          load={loadSeverityChart}
+          props={{ data: severity, height: 168 }}
+          height={168}
+          caption="CVEs by severity, last 90 days"
+          columns={['Severity', 'CVEs']}
+          rows={severityTableRows(severity)}
+        />
+      {:else}
+        <p class="chart-empty">No data for this window.</p>
+      {/if}
     </section>
 
     <!-- Publication velocity -->
     <section class="chart-card" aria-labelledby="chart-velocity-heading">
       <h2 id="chart-velocity-heading" class="chart-title">Publication Velocity (90d)</h2>
-      <div class="sparkline-wrap">
-        {#if data.series.publicationVelocity.length > 0}
-          {@const max = Math.max(...data.series.publicationVelocity.map(r => r.count), 1)}
-          <div class="sparkline" role="img" aria-label="Publication velocity sparkline">
-            {#each data.series.publicationVelocity.slice().reverse() as row}
-              <div
-                class="spark-bar"
-                style="height:{((row.count / max) * 100).toFixed(1)}%"
-                title="{row.date}: {row.count}"
-              ></div>
-            {/each}
-          </div>
-        {:else}
-          <p class="chart-empty">No data for this window.</p>
-        {/if}
-      </div>
+      {#if velocityTotal > 0}
+        <ChartIsland
+          load={loadDailyTrendChart}
+          props={{ data: velocity, variant: 'area' as const, color: 'var(--color-brand-default)', label: 'CVEs published', height: 180 }}
+          height={180}
+          caption="CVEs published per day (UTC), last 90 days"
+          columns={['Date (UTC)', 'CVEs published']}
+          rows={dailyTableRows(velocity)}
+        />
+      {:else}
+        <p class="chart-empty">No data for this window.</p>
+      {/if}
     </section>
   </div>
 
@@ -100,22 +124,18 @@
     <!-- KEV inflow -->
     <section class="chart-card" aria-labelledby="chart-kev-heading">
       <h2 id="chart-kev-heading" class="chart-title">KEV Additions (90d)</h2>
-      <div class="sparkline-wrap">
-        {#if data.series.kevInflow.length > 0}
-          {@const max = Math.max(...data.series.kevInflow.map(r => r.count), 1)}
-          <div class="sparkline sparkline--kev" role="img" aria-label="KEV inflow sparkline">
-            {#each data.series.kevInflow.slice().reverse() as row}
-              <div
-                class="spark-bar spark-bar--kev"
-                style="height:{((row.count / max) * 100).toFixed(1)}%"
-                title="{row.date}: {row.count}"
-              ></div>
-            {/each}
-          </div>
-        {:else}
-          <p class="chart-empty">No KEV additions in this window.</p>
-        {/if}
-      </div>
+      {#if kevInflowTotal > 0}
+        <ChartIsland
+          load={loadDailyTrendChart}
+          props={{ data: kevInflow, variant: 'bar' as const, color: 'var(--color-kev)', label: 'KEV additions', height: 180 }}
+          height={180}
+          caption="CVEs added to the CISA KEV catalog per day (UTC), last 90 days"
+          columns={['Date (UTC)', 'KEV additions']}
+          rows={dailyTableRows(kevInflow)}
+        />
+      {:else}
+        <p class="chart-empty">No KEV additions in this window.</p>
+      {/if}
     </section>
   </div>
 </div>
@@ -137,8 +157,9 @@
     border-radius: var(--radius-md); padding: var(--space-5);
     display: flex; flex-direction: column; gap: var(--space-2);
   }
-  .kpi-card--critical { border-color: #7f1d1d; }
-  .kpi-card--kev { border-color: #7c2d12; }
+  .kpi-card--critical { border-color: var(--color-critical-border); }
+  /* app.css has no --color-kev-border; KEV is the critical hue family by design. */
+  .kpi-card--kev { border-color: var(--color-critical-border); }
   .kpi-label { font-size: var(--text-sm); color: var(--color-text-secondary); }
   .kpi-value { font-size: var(--text-3xl); font-weight: var(--weight-semibold); color: var(--color-text-primary); line-height: 1; }
 
@@ -153,35 +174,13 @@
   .chart-title { font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--color-text-secondary); margin: 0 0 var(--space-4); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
   .chart-empty { font-size: var(--text-sm); color: var(--color-text-tertiary); }
 
-  .bar-chart { display: flex; flex-direction: column; gap: var(--space-2); }
-  .bar-row { display: grid; grid-template-columns: 6rem 1fr 4rem; align-items: center; gap: var(--space-2); }
-  .bar-label { font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
-  .badge--critical { color: #fca5a5; }
-  .badge--high { color: #fed7aa; }
-  .badge--medium { color: #fde68a; }
-  .badge--low { color: #86efac; }
-  .badge--none { color: var(--color-text-tertiary); }
-  .bar-track { height: 0.5rem; background: var(--color-surface-elevated); border-radius: var(--radius-full); overflow: hidden; }
-  .bar-fill { height: 100%; border-radius: var(--radius-full); transition: width 0.3s ease; }
-  .bar-fill--critical { background: #ef4444; }
-  .bar-fill--high { background: #f97316; }
-  .bar-fill--medium { background: #eab308; }
-  .bar-fill--low { background: #22c55e; }
-  .bar-fill--none { background: var(--color-text-tertiary); }
-  .bar-count { font-size: var(--text-xs); color: var(--color-text-tertiary); text-align: right; }
-
-  .sparkline-wrap { height: 8rem; position: relative; }
-  .sparkline { display: flex; align-items: flex-end; gap: 2px; height: 100%; }
-  .spark-bar { flex: 1; min-width: 2px; background: var(--color-brand-500); border-radius: 1px 1px 0 0; opacity: 0.7; }
-  .spark-bar--kev { background: #f97316; }
-
   .vendor-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
   .vendor-row { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); }
   .vendor-rank { width: 1.25rem; color: var(--color-text-tertiary); font-size: var(--text-xs); flex-shrink: 0; }
   .vendor-name { flex: 1; color: var(--color-text-primary); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .vendor-name:hover { text-decoration: underline; }
   .vendor-count { color: var(--color-text-secondary); font-size: var(--text-xs); flex-shrink: 0; }
-  .vendor-kev-badge { font-size: var(--text-xs); color: #fed7aa; background: #7c2d12; padding: 0.125rem 0.375rem; border-radius: var(--radius-full); flex-shrink: 0; }
+  .vendor-kev-badge { font-size: var(--text-xs); color: var(--color-kev-text); background: var(--color-kev-subtle); padding: 0.125rem 0.375rem; border-radius: var(--radius-full); flex-shrink: 0; }
 
   @media (max-width: 900px) {
     .kpi-grid { grid-template-columns: repeat(2, 1fr); }

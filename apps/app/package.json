@@ -20,6 +20,7 @@
     "@sveltejs/adapter-cloudflare": "^5.0.1",
     "@sveltejs/kit": "^2.21.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@types/d3-scale": "4.0.9",
     "svelte": "^5.30.0",
     "svelte-check": "^4.1.6",
     "typescript": "^5.8.3",
@@ -31,6 +32,8 @@
     "@tanstack/svelte-table": "9.3.1",
     "@tanstack/svelte-virtual": "3.13.48",
     "@threat-lens/contracts": "workspace:*",
-    "bits-ui": "^2.20.2"
+    "bits-ui": "^2.20.2",
+    "d3-scale": "4.0.2",
+    "layerchart": "2.9.1"
   }
 }

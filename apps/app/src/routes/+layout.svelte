@@ -1,5 +1,10 @@
 <script lang="ts">
   import '../app.css';
+  // Declares LayerChart's cascade-layer order (one `@layer` statement, no
+  // rules). It must load before any LayerChart component CSS, or layer
+  // precedence falls to bundler emit order and can differ between dev and
+  // production builds — hence here, not in the chart components.
+  import 'layerchart/core.css';
   import Toast from '$lib/ui/Toast.svelte';
   import type { ToastVariant } from '$lib/ui/Toast.svelte';
   import { setContext, untrack } from 'svelte';
