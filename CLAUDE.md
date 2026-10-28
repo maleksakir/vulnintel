@@ -21,20 +21,52 @@ in this repo — read it before making changes.
 Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) →
 `app` reads D1 directly for pages, KV as a short-TTL cache for the JSON API.
 
-## Known constraints (check before changing ingest code)
+## Known constraints (Workers Free plan — check before changing either app)
 
 - **D1 writes and KV deletes must be skip-if-unchanged.** EPSS/KEV sources ship
   full snapshots daily, not deltas — `processRecord.ts` has a two-hash
-  (text/state) change-detection gate; `applyEpssPatch`/`applyKevPatch` now have
+  (text/state) change-detection gate; `applyEpssPatchBatch`/`applyKevPatch` have
   an equivalent guard (added 2026-10-27 after a KV free-tier quota incident —
   250k+ unconditional KV deletes/day from the EPSS full-CSV re-ingest). Any new
   ingest path that touches KV or D1 per-record must have the same guard, or it
   will blow through Cloudflare's free-tier daily KV write/delete cap (1,000/day).
+- **Bulk D1 operations (DELETE, full-table rebuilds) must be batched, bounded,
+  and conditional.** A single unbatched DELETE + an unconditional daily FTS
+  rebuild in the aging sweep silently exceeded the per-invocation CPU budget
+  as a backlog grew, got killed mid-run, and stayed broken for ~2 months
+  before anyone noticed (2026-08-27 → 2026-10-28, see
+  `docs/EXECUTION_PLAN.md`). Chunk large deletes (`WHERE id IN (SELECT ...
+  LIMIT n)`, looped with a batch-count cap); skip expensive rebuild steps
+  on no-op runs.
+- **Per-request CPU budget is fixed and NOT raisable on this plan.**
+  `[limits] cpu_ms` in `wrangler.toml` is rejected outright at deploy time:
+  "CPU limits are not supported for the Free plan." This matters for more
+  than ingest crons — **server-rendering any non-trivial chart/visualization
+  library is almost certainly not viable**: LayerChart (SVG output, in
+  principle SSR-safe) measured 127–389ms server-side CPU for 3 dashboard
+  charts, 12–39x the budget (2026-10-28). "Emits SVG instead of canvas"
+  means SSR *won't crash* — it does not mean SSR *fits the CPU budget*. Any
+  charting/heavy-computation UI work should default to a client-only island
+  (`import()` inside `onMount`, gated by `import.meta.env.SSR` so the library
+  never enters the server bundle) unless proven cheap enough to server-render
+  by actually measuring it, not by assuming "SVG = safe."
 - Cloudflare free tier in general: KV reads 100k/day, writes+deletes+lists
-  1k/day combined. Design any new cron/batch job with that ceiling in mind.
-- `wrangler` is **not authenticated in the agent's environment** — code changes
-  land in git but someone with Cloudflare account access must run
-  `wrangler deploy` (or wire up the CI job) to actually ship them.
+  1k/day combined; D1 reads 5M/day, writes 100k/day, 500MB per database;
+  Cron Triggers 5 per account (already fully used by `apps/ingest`). Design
+  any new cron/batch job, or chart/feature that queries D1 per request, with
+  these ceilings in mind.
+- **Live-debugging D1 issues against the real account spends from the same
+  daily read budget production traffic uses.** A round of diagnostic `curl`
+  calls to the D1 HTTP API (one alone read 733k rows) exhausted the day's 5M
+  read quota and caused a second, unrelated site-wide outage while
+  investigating the aging-sweep bug (2026-10-28). Prefer local testing
+  (`@cloudflare/vitest-plugin`'s real-but-local `workerd` D1) over live
+  queries whenever the question can be answered locally; if live querying is
+  genuinely necessary, keep it to as few, cheap round-trips as possible.
+- CI/CD (`.github/workflows/`) can deploy via `wrangler deploy` once
+  `CLOUDFLARE_API_TOKEN` is set as a repo secret (done 2026-10-28) — `wrangler`
+  itself still isn't authenticated in an interactive agent's own shell unless
+  someone passes a token in for that session.
 
 ## Repo state (as of 2026-10-27)
 
