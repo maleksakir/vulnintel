@@ -178,6 +178,22 @@ h6 {
 
   /* ── Code / Monospace background (light) */
   --color-code-bg: hsl(220, 16%, 93%);
+
+  /* ── Compatibility aliases (numeric brand scale + component tokens) ───
+     Must live in THIS :root block, not a later one — [data-theme="dark"]
+     below redefines these for dark mode, and a same-specificity :root
+     rule appearing later in source order would win and silently override
+     the dark values back to light (found 2026-10-28: this exact bug had
+     borders/surfaces/muted-text rendering in light-mode hues site-wide
+     whenever dark mode was active). */
+  --color-brand-400:        hsl(215, 80%, 55%);
+  --color-brand-500:        hsl(215, 80%, 48%);
+  --color-brand-600:        hsl(215, 80%, 40%);
+  --color-surface-elevated: hsl(220, 16%, 93%);
+  --color-border-subtle:    hsl(220, 14%, 92%);
+  --color-text-muted:       hsl(222,  8%, 72%);
+  --color-text-on-brand:    hsl(  0,  0%, 100%);
+  --z-header:               20;
 }
 
 /* ── Dark theme overrides ───────────────────────────────────────────────── */
@@ -423,16 +439,6 @@ h6 {
   --layout-grid-col-6:    50%;
   --layout-grid-col-8:    calc(8 / 12 * 100%);
   --layout-grid-col-12:   100%;
-
-  /* ── Compatibility aliases (numeric brand scale + component tokens) ─── */
-  --color-brand-400:        hsl(215, 80%, 55%);
-  --color-brand-500:        hsl(215, 80%, 48%);
-  --color-brand-600:        hsl(215, 80%, 40%);
-  --color-surface-elevated: hsl(220, 16%, 93%);
-  --color-border-subtle:    hsl(220, 14%, 92%);
-  --color-text-muted:       hsl(222,  8%, 72%);
-  --color-text-on-brand:    hsl(  0,  0%, 100%);
-  --z-header:               20;
 }
 
 /* ── Dark-theme shadow overrides (deeper, higher contrast) ─────────────── */
