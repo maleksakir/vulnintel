@@ -31,12 +31,18 @@
  *   a re-run are skipped entirely.
  */
 
-import type { EpssPatch, NormalizedCpe, NormalizedCveRecord, Severity } from '@threat-lens/contracts';
+import type {
+  EpssPatch,
+  NormalizedCpe,
+  NormalizedCveRecord,
+  Severity,
+} from '@threat-lens/contracts';
 import { fetchEpssCsv } from '../src/adapters/epss';
 import { fetchKevCatalog } from '../src/adapters/kev';
 import { applyEpssPatchBatch, applyKevPatch, processRecord } from '../src/lib/server/processRecord';
 
 const EPSS_BATCH_SIZE = 200; // mirrors src/pipelines/daily.ts — keep in sync
+
 import type { Env } from '../src/types';
 
 const NVD_BASE = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
