@@ -48,7 +48,7 @@ an account-level/security-boundary decision not safe to hand to a subagent).
 | GHSA (scoped) | `cf-backend-dev` | GraphQL pull for CWE/CVSS backfill + withdrawal tracking only — not a coverage source (OSV already covers it) | not started |
 | Exploit-signal aggregation | `cf-backend-dev` | ExploitDB CSV + Metasploit `modules_metadata_base.json` + PoC-in-GitHub (confidence-ranked, latter labeled unverified) | not started |
 | Reranker on search | `cf-backend-dev` | `@cf/baai/bge-reranker-base` over existing Vectorize retrieval in `apps/app/src/lib/server/queries/searchCves.ts` | not started |
-| Large-table UX | `sveltekit-dev` | `@tanstack/svelte-table` + `@tanstack/svelte-virtual` for search results / future asset inventory | not started |
+| Large-table UX | `sveltekit-dev` | `@tanstack/svelte-table` + `@tanstack/svelte-virtual` for search results / future asset inventory | ✅ done (`51cd9f1`) — sortable table, reusable virtualization helper (`windowRows.svelte.ts`) for future asset inventory reuse. Also surfaced and fixed a site-wide dark-mode CSS bug (`d37dda4`). Real effect pending: `/api/search` currently caps `limit` at 50, so virtualization (kicks in >100 rows) doesn't engage yet — raising the page size is a separate product call, not a data-cost one (searchCves already fetches up to 200 D1 candidates) |
 | Dashboard charts | `sveltekit-dev` | LayerChart 2.x for bars/trends (SSR-safe); ECharts isolated client-only for the CVSS×EPSS heatmap | not started |
 
 ## Phase 3 — Watchlists (the core differentiator)
