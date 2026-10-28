@@ -79,13 +79,20 @@ dead_letter_queue = "cve-ingest-dlq"
 [env.staging]
 name = "threat-lens-ingest-staging"
 
-# No crons here, deliberately. Cron Triggers are capped account-wide (5 on
-# Workers Free — this account already hit that cap once, 2026-10-27), so
-# staging registering its own copy of the 5 production crons would need 10
-# total and fail to deploy. Staging exists to verify a build/deploy actually
-# works; it isn't meant to run its own autonomous ingestion schedule. Invoke
-# pipelines manually against staging (wrangler dev / a manual fetch handler)
-# if an end-to-end smoke test is ever needed.
+# Explicitly EMPTY, not omitted — omitting this section still inherited the
+# top-level crons at deploy time (confirmed 2026-10-28: a staging deploy
+# with no [env.staging.triggers] block at all still failed with "reached the
+# Workers Free limit of 5 cron triggers per account", proving the top-level
+# [triggers] list was being applied to the staging Worker too). Cron Triggers
+# are capped account-wide (5 on Workers Free — this account already hit that
+# cap once, 2026-10-27), and production's threat-lens-ingest already uses
+# all 5, so staging inheriting even one pushes the account over the limit.
+# Staging exists to verify a build/deploy actually works, not to run its own
+# autonomous ingestion schedule — invoke pipelines manually against it
+# (wrangler dev / a manual fetch handler) if an end-to-end smoke test is
+# ever needed.
+[env.staging.triggers]
+crons = []
 
 [[env.staging.d1_databases]]
 binding = "DB"
