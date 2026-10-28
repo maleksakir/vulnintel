@@ -23,7 +23,7 @@ an account-level/security-boundary decision not safe to hand to a subagent).
 | Native Workers Logs | `deployer` | `[observability] enabled = true` in both `wrangler.toml` files | ✅ done (`33ef4ed`) |
 | D1 size (500.98MB, at the 500MB free cap) | Me | Blocked until the daily D1 read-quota resets (00:00 UTC) — query `dbstat`-equivalent table sizes for real, then decide FTS5/retention changes with actual numbers, not a guess | ⏸ blocked until quota resets |
 | `ADMIN_BEARER` URL leak | `cf-backend-dev` | Cookie + redirect + constant-time compare, `apps/app/src/routes/admin/health/` | ✅ done (`9f7c870`) |
-| Public API routes other than search have no quota/rate-limit | `cf-backend-dev` | Found by `security-reviewer` 2026-10-28: only `searchCves.ts` calls `checkAndIncrementQuota`. `/api/cve/[id]`, `/api/threat-intel/kev`, `/api/threat-intel/epss` write to KV on every cache miss / per distinct `cursor`\`limit\` with no gate at all — same bug shape as the 2026-10-27 incident, an anonymous client sending ~1,000 distinct requests can burn the account's daily KV write cap, after which `cacheRead.ts` turns every cache miss on those routes into a 500 | not started |
+| Public API routes other than search have no quota/rate-limit | Me (fixed directly) | Found by `security-reviewer` 2026-10-28: only `searchCves.ts` called `checkAndIncrementQuota`. Added a lighter `checkRateLimit()` (native binding only, no D1/KV cost) to `cve/[id]`, `affected-products`, `metrics/[window]`, `threat-intel/kev`, `threat-intel/epss` — shares the same bucket as search so route-switching doesn't bypass it | ✅ done (`546b36b`) |
 
 ## Phase 1 — Foundation & hygiene
 
