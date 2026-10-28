@@ -1,0 +1,7 @@
+# Force LF in the repository regardless of the checkout platform's line
+# ending settings. Without this, a Windows checkout with core.autocrlf=true
+# normalizes to CRLF locally while CI (Linux) checks out LF — Biome (and any
+# other tool that's line-ending sensitive) then disagrees with itself between
+# a local run and CI. Git still stores LF blobs either way; this just stops
+# local autocrlf from producing CRLF files that look "changed" against CI.
+* text=auto eol=lf

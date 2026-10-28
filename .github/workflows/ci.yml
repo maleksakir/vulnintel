@@ -1,13 +1,17 @@
 name: CI
 
-# Runs on every PR and on every push to main. deploy.yml's staging job waits
-# for *this* workflow (by name) to report success via a workflow_run trigger,
-# so keep the name "CI" in sync with deploy.yml if it ever changes.
+# Runs on every PR, on every push to main, and as a reusable workflow called
+# by deploy.yml (workflow_call) — deploy.yml needs CI to actually finish
+# inside the SAME run before deploying, which workflow_run cannot guarantee
+# (it fires from a separate run and, for a fork PR, head_branch can be
+# attacker-controlled — see the 2026-10-28 review). needs: against a
+# workflow_call job is the safe way to gate deploy on CI.
 on:
   pull_request:
   push:
     branches: [main]
   workflow_dispatch: {}
+  workflow_call: {}
 
 permissions:
   contents: read
@@ -33,6 +37,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Filter paths
         id: filter
         uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3.0.4
@@ -45,6 +51,7 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - 'tsconfig.base.json'
+              - '.github/workflows/**'
             ingest:
               - 'apps/ingest/**'
               - 'packages/contracts/**'
@@ -52,6 +59,7 @@ jobs:
               - 'pnpm-lock.yaml'
               - 'pnpm-workspace.yaml'
               - 'tsconfig.base.json'
+              - '.github/workflows/**'
 
   # Biome is being rolled out in a parallel workstream (see
   # docs/EXECUTION_PLAN.md, Phase 1). Skip gracefully until biome.json lands
@@ -63,6 +71,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Setup pnpm
         if: hashFiles('biome.json', 'biome.jsonc') != ''
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -92,6 +102,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - name: Setup Node
@@ -113,6 +125,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - name: Setup Node
@@ -122,6 +136,12 @@ jobs:
           cache: 'pnpm'
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      # vitest-plugin loads apps/app/wrangler.toml, whose `main` points at
+      # .svelte-kit/cloudflare/_worker.js — that file only exists after a
+      # real SvelteKit build, so the test run fails on a clean checkout
+      # without this step (confirmed by reproduction, 2026-10-28 review).
+      - name: Build apps/app
+        run: pnpm --filter=threat-lens-app build
       - name: Run vitest (apps/app, real D1/KV via workerd)
         run: pnpm --filter=threat-lens-app test
 
@@ -134,6 +154,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Setup pnpm
         uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
       - name: Setup Node

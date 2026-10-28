@@ -88,3 +88,8 @@ binding = "AI"
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
 id = "REPLACE_AFTER_PROVISIONING"
+
+[[env.staging.ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1002"
+simple = { limit = 500, period = 60 }

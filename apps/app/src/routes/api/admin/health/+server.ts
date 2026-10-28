@@ -7,7 +7,9 @@ export const GET: RequestHandler = async ({ request, platform, locals }) => {
   const env = platform!.env;
   const authHeader = request.headers.get('Authorization') ?? '';
 
-  if (!timingSafeEqual(authHeader, `Bearer ${env.ADMIN_BEARER}`)) {
+  // Fail closed if the secret itself isn't configured (e.g. a staging
+  // deploy with no Worker secret set) — see admin/health/+page.server.ts.
+  if (!env.ADMIN_BEARER || !timingSafeEqual(authHeader, `Bearer ${env.ADMIN_BEARER}`)) {
     return errorResponse(
       'FORBIDDEN_NETWORK',
       'Invalid or missing bearer token.',

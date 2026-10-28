@@ -31,10 +31,12 @@
  *   a re-run are skipped entirely.
  */
 
-import type { NormalizedCpe, NormalizedCveRecord, Severity } from '@threat-lens/contracts';
+import type { EpssPatch, NormalizedCpe, NormalizedCveRecord, Severity } from '@threat-lens/contracts';
 import { fetchEpssCsv } from '../src/adapters/epss';
 import { fetchKevCatalog } from '../src/adapters/kev';
-import { applyEpssPatch, applyKevPatch, processRecord } from '../src/lib/server/processRecord';
+import { applyEpssPatchBatch, applyKevPatch, processRecord } from '../src/lib/server/processRecord';
+
+const EPSS_BATCH_SIZE = 200; // mirrors src/pipelines/daily.ts — keep in sync
 import type { Env } from '../src/types';
 
 const NVD_BASE = 'https://services.nvd.nist.gov/rest/json/cves/2.0';
@@ -199,16 +201,27 @@ export async function run(env: Env): Promise<void> {
     console.log('[backfill] Applying EPSS overlay…');
     let epssOk = 0;
     let epssFail = 0;
+    let epssBatch: EpssPatch[] = [];
+    const flushEpssBatch = async () => {
+      if (epssBatch.length === 0) return;
+      const batch = epssBatch;
+      epssBatch = [];
+      try {
+        await applyEpssPatchBatch(batch, env, ctx);
+        epssOk += batch.length;
+      } catch (err) {
+        console.error(`[backfill] EPSS batch of ${batch.length} failed:`, err);
+        epssFail += batch.length;
+      }
+    };
     try {
       for await (const patch of fetchEpssCsv()) {
-        try {
-          await applyEpssPatch(patch, env, ctx);
-          epssOk++;
-        } catch (err) {
-          console.error(`[backfill] EPSS patch failed for ${patch.cveId}:`, err);
-          epssFail++;
+        epssBatch.push(patch);
+        if (epssBatch.length >= EPSS_BATCH_SIZE) {
+          await flushEpssBatch();
         }
       }
+      await flushEpssBatch();
       console.log(`[backfill] EPSS overlay complete. applied=${epssOk} failed=${epssFail}`);
     } catch (err) {
       console.error('[backfill] EPSS fetch failed:', err);
