@@ -75,19 +75,20 @@ export function createWindowRows(options: WindowRowsOptions): WindowRows {
   // non-virtualized, first-`threshold`-rows render SSR needs; `mounted` is
   // also always false server-side, so `active` is false anyway and nothing
   // past this point needed the real virtualizer during SSR to begin with.
-  const store = typeof window !== 'undefined'
-    ? createWindowVirtualizer<HTMLElement>({
-        count: 0,
-        enabled: false,
-        estimateSize: () => options.estimateSize,
-        overscan: options.overscan ?? 8,
-        // Apply row measurements on the next frame instead of inside the
-        // ResizeObserver callback; otherwise the re-render they trigger lands
-        // in the same observer cycle and Chrome logs "ResizeObserver loop
-        // completed with undelivered notifications".
-        useAnimationFrameWithResizeObserver: true,
-      })
-    : null;
+  const store =
+    typeof window !== 'undefined'
+      ? createWindowVirtualizer<HTMLElement>({
+          count: 0,
+          enabled: false,
+          estimateSize: () => options.estimateSize,
+          overscan: options.overscan ?? 8,
+          // Apply row measurements on the next frame instead of inside the
+          // ResizeObserver callback; otherwise the re-render they trigger lands
+          // in the same observer cycle and Chrome logs "ResizeObserver loop
+          // completed with undelivered notifications".
+          useAnimationFrameWithResizeObserver: true,
+        })
+      : null;
 
   // One subscription for the component's whole lifetime. The adapter
   // re-applies its *initial* options whenever its subscriber count goes
