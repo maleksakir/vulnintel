@@ -67,17 +67,27 @@ export function createWindowRows(options: WindowRowsOptions): WindowRows {
   const keys = $derived(options.keys());
   const active = $derived(mounted && keys.length > threshold);
 
-  const store = createWindowVirtualizer<HTMLElement>({
-    count: 0,
-    enabled: false,
-    estimateSize: () => options.estimateSize,
-    overscan: options.overscan ?? 8,
-    // Apply row measurements on the next frame instead of inside the
-    // ResizeObserver callback; otherwise the re-render they trigger lands in
-    // the same observer cycle and Chrome logs "ResizeObserver loop completed
-    // with undelivered notifications".
-    useAnimationFrameWithResizeObserver: true,
-  });
+  // createWindowVirtualizer touches `window` during construction, which
+  // doesn't exist during SSR (found 2026-10-28: this crashed every /search
+  // request that returned results with a 500, since this ran unconditionally
+  // at component init). `instance` stays null on the server, so `view` below
+  // falls through to its `!instance` branch — already exactly the
+  // non-virtualized, first-`threshold`-rows render SSR needs; `mounted` is
+  // also always false server-side, so `active` is false anyway and nothing
+  // past this point needed the real virtualizer during SSR to begin with.
+  const store = typeof window !== 'undefined'
+    ? createWindowVirtualizer<HTMLElement>({
+        count: 0,
+        enabled: false,
+        estimateSize: () => options.estimateSize,
+        overscan: options.overscan ?? 8,
+        // Apply row measurements on the next frame instead of inside the
+        // ResizeObserver callback; otherwise the re-render they trigger lands
+        // in the same observer cycle and Chrome logs "ResizeObserver loop
+        // completed with undelivered notifications".
+        useAnimationFrameWithResizeObserver: true,
+      })
+    : null;
 
   // One subscription for the component's whole lifetime. The adapter
   // re-applies its *initial* options whenever its subscriber count goes
@@ -85,7 +95,7 @@ export function createWindowRows(options: WindowRowsOptions): WindowRows {
   // subscriptions came and went (e.g. with `{#if}` blocks or `get(store)`).
   $effect.pre(() =>
     untrack(() =>
-      store.subscribe((v) => {
+      store?.subscribe((v) => {
         instance = v;
         version = ++notifications;
       }),
