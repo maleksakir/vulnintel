@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import type { Severity } from '@threat-lens/contracts';
+  import SearchResultsTable from './SearchResultsTable.svelte';
 
   interface Props { data: PageData }
   let { data }: Props = $props();
@@ -101,37 +102,7 @@
       </p>
     </div>
 
-    <ol class="results-list" aria-label="Search results">
-      {#each data.results as result (result.cveId)}
-        <li class="result-item">
-          <div class="result-header">
-            <a class="result-cve-id" href="/cve/{result.cveId}">{result.cveId}</a>
-            <span class="result-severity" style="color:{SEV_COLOR[result.severity]}">{result.severity}</span>
-            {#if result.cvssBase !== null}
-              <span class="result-cvss">CVSS {result.cvssBase.toFixed(1)}</span>
-            {/if}
-            {#if result.kevListed}
-              <span class="result-kev-badge">KEV</span>
-            {/if}
-            {#if result.epssPercentile !== null}
-              <span class="result-epss">EPSS p{(result.epssPercentile * 100).toFixed(0)}</span>
-            {/if}
-            <a class="result-similar" href="/search?q={result.cveId}" title="Find similar CVEs">Similar</a>
-          </div>
-          <p class="result-snippet">{result.snippet}</p>
-          {#if result.vendors.length > 0}
-            <div class="result-vendors">
-              {#each result.vendors as v}
-                <a href="/affected-products?vendor={encodeURIComponent(v)}" class="vendor-tag">{v}</a>
-              {/each}
-            </div>
-          {/if}
-          <div class="result-meta">
-            <span>Published {new Date(result.publishedAt).toLocaleDateString()}</span>
-          </div>
-        </li>
-      {/each}
-    </ol>
+    <SearchResultsTable results={data.results} />
   {/if}
 </div>
 
@@ -167,27 +138,6 @@
   .alert--warn { background: #7c2d1220; border: 1px solid #7c2d12; color: #fed7aa; }
   .empty-state { color: var(--color-text-secondary); font-size: var(--text-base); }
 
-  .results-header { margin-block-end: var(--space-4); }
+  .results-header { margin-block-end: var(--space-2); }
   .results-count { font-size: var(--text-sm); color: var(--color-text-secondary); }
-
-  .results-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-3); }
-  .result-item {
-    background: var(--color-surface-raised); border: 1px solid var(--color-border-subtle);
-    border-radius: var(--radius-md); padding: var(--space-4);
-  }
-  .result-item:hover { border-color: var(--color-border-default); }
-  .result-header { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-block-end: var(--space-2); }
-  .result-cve-id { font-size: var(--text-base); font-weight: var(--weight-semibold); color: var(--color-brand-400); text-decoration: none; font-family: var(--font-mono); }
-  .result-cve-id:hover { text-decoration: underline; }
-  .result-severity { font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
-  .result-cvss { font-size: var(--text-xs); color: var(--color-text-tertiary); font-family: var(--font-mono); }
-  .result-kev-badge { font-size: var(--text-xs); background: #7c2d12; color: #fed7aa; padding: 0.125rem 0.375rem; border-radius: var(--radius-full); font-weight: var(--weight-medium); }
-  .result-epss { font-size: var(--text-xs); color: var(--color-text-tertiary); }
-  .result-similar { margin-left: auto; font-size: var(--text-xs); color: var(--color-text-tertiary); text-decoration: none; }
-  .result-similar:hover { color: var(--color-brand-400); }
-  .result-snippet { font-size: var(--text-sm); color: var(--color-text-secondary); margin: 0 0 var(--space-2); line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-  .result-vendors { display: flex; gap: var(--space-1); flex-wrap: wrap; margin-block-end: var(--space-2); }
-  .vendor-tag { font-size: var(--text-xs); color: var(--color-text-secondary); background: var(--color-surface-elevated); padding: 0.125rem 0.375rem; border-radius: var(--radius-sm); text-decoration: none; }
-  .vendor-tag:hover { background: var(--color-surface-raised); color: var(--color-text-primary); }
-  .result-meta { font-size: var(--text-xs); color: var(--color-text-tertiary); }
 </style>

@@ -28,6 +28,8 @@
     "wrangler": "^4.14.4"
   },
   "dependencies": {
+    "@tanstack/svelte-table": "9.3.1",
+    "@tanstack/svelte-virtual": "3.13.48",
     "@threat-lens/contracts": "workspace:*",
     "bits-ui": "^2.20.2"
   }
