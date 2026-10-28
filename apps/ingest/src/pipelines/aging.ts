@@ -4,6 +4,8 @@ import type { Env } from '../types';
 const RETENTION_MONTHS = 24;
 const QUOTA_RETENTION_DAYS = 7;
 const AUDIT_RETENTION_DAYS = 90;
+const DELETE_BATCH_SIZE = 500;
+const MAX_DELETE_BATCHES = 50; // caps a single run at 25,000 rows
 
 /**
  * Aging sweep (cron: 30 2 * * *).
@@ -13,6 +15,18 @@ const AUDIT_RETENTION_DAYS = 90;
  * After deletion, rebuilds the cpe_search FTS index and writes daily metrics.
  * Also runs tail-purge of quota ledgers, audit_log, and cve_quarantine tables
  * (folded here to stay within the 5-trigger Workers cap).
+ *
+ * The delete runs in bounded batches, not one unconditional statement.
+ * Found 2026-10-28: a single unbatched DELETE against the full backlog (plus
+ * cascading FK deletes across cpe/cve_reference/FTS5 shadow tables, plus an
+ * unconditional full cpe_search rebuild afterward) had been silently
+ * exceeding the Worker's CPU/time budget and getting killed mid-run for
+ * ~2 months — markIngestStarted recorded each attempt, but the kill
+ * happened before markIngestFinished ever ran, so `ingest_run` kept
+ * reporting a stale "OK" from the last run small enough to finish while a
+ * ~21,000-row backlog silently accumulated (a meaningful share of the D1
+ * free-tier 500MB cap). Batching bounds the worst case per invocation
+ * regardless of how large the backlog gets.
  */
 export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<void> {
   const startedAt = Date.now();
@@ -24,18 +38,26 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
   let lastError: string | undefined;
 
   try {
-    // Delete expired CVEs (CASCADE handles child rows).
-    const result = await env.DB.prepare(
-      `DELETE FROM cve
-       WHERE published_at < ?
-         AND cve_id NOT IN (
-           SELECT cve_id FROM cve_state WHERE kev_listed = 1
+    // Delete expired CVEs in bounded batches (CASCADE handles child rows).
+    // The inner SELECT...LIMIT is standard SQLite (works without the
+    // SQLITE_ENABLE_UPDATE_DELETE_LIMIT compile flag D1 doesn't guarantee);
+    // a bare `DELETE ... LIMIT` would not be portable.
+    for (let i = 0; i < MAX_DELETE_BATCHES; i++) {
+      const result = await env.DB.prepare(
+        `DELETE FROM cve WHERE cve_id IN (
+           SELECT cve_id FROM cve
+           WHERE published_at < ?
+             AND cve_id NOT IN (SELECT cve_id FROM cve_state WHERE kev_listed = 1)
+           LIMIT ?
          )`,
-    )
-      .bind(cutoffMs)
-      .run();
+      )
+        .bind(cutoffMs, DELETE_BATCH_SIZE)
+        .run();
 
-    agedOut = result.meta.changes ?? 0;
+      const batchDeleted = result.meta.changes ?? 0;
+      agedOut += batchDeleted;
+      if (batchDeleted < DELETE_BATCH_SIZE) break; // fewer than a full batch — caught up
+    }
 
     // Tail-purge operational tables.
     const quotaCutoffDay = isoDay(new Date(startedAt - QUOTA_RETENTION_DAYS * 86400000));
@@ -48,14 +70,20 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
       env.DB.prepare('DELETE FROM cve_quarantine WHERE quarantined_at < ?').bind(auditCutoffMs),
     ]);
 
-    // Rebuild cpe_search FTS after bulk delete (one-shot cheaper than per-row trigger).
-    await env.DB.batch([
-      env.DB.prepare('DELETE FROM cpe_search'),
-      env.DB.prepare(
-        `INSERT INTO cpe_search (vendor, product)
-         SELECT DISTINCT vendor, product FROM cpe`,
-      ),
-    ]);
+    // Rebuild cpe_search FTS after bulk delete (one-shot cheaper than
+    // per-row trigger) — only when something was actually deleted. This
+    // was previously unconditional: a full rebuild over 260k+ cpe rows
+    // every single day regardless of whether any aging occurred was itself
+    // a meaningful, avoidable share of this job's cost.
+    if (agedOut > 0) {
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM cpe_search'),
+        env.DB.prepare(
+          `INSERT INTO cpe_search (vendor, product)
+           SELECT DISTINCT vendor, product FROM cpe`,
+        ),
+      ]);
+    }
 
     // Write daily metrics snapshot.
     const metricDate = dateToInt(new Date(startedAt));

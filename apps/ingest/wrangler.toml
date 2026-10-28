@@ -13,6 +13,14 @@ workers_dev = false
 [observability]
 enabled = true
 
+# Explicit CPU budget, not left at the implicit default. The aging sweep's
+# bulk DELETE (see pipelines/aging.ts) was silently exceeding whatever the
+# default was and getting killed mid-run for ~2 months (found 2026-10-28)
+# before the delete itself was batched. Cloudflare caps this to whatever the
+# current plan actually allows — declaring a high number here is harmless.
+[limits]
+cpu_ms = 30000
+
 # Cron schedule. Each cron expression dispatches to a distinct pipeline
 # inside the scheduled() handler. Full dispatch table is in Section 5.1.1.
 [triggers]
