@@ -20,10 +20,14 @@ run_worker_first = true
 
 # Production database. The app worker uses a read-mostly access pattern;
 # write paths are gated by the application layer to admin-only routes.
+# D1/KV resource IDs are not secrets (confirmed in the 2026-10-28 security
+# review) — committed directly rather than left as REPLACE_AFTER_PROVISIONING
+# placeholders, which had silently broken the staging deploy job in CI since
+# nothing had ever filled them in.
 [[d1_databases]]
 binding = "DB"
 database_name = "cve_prod_d1"
-database_id = "REPLACE_AFTER_PROVISIONING"
+database_id = "277f037d-d7b2-405e-b639-6fef206f260c"
 migrations_dir = "../../migrations"
 
 # Vector index for hybrid semantic search.
@@ -44,7 +48,7 @@ binding = "AI"
 # Hot-path response cache (metric snapshots, KEV list, CVE detail).
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_AFTER_PROVISIONING"
+id = "6a5b96655a224e0cabccfd3611fa57fe"
 
 # Per-IP search throttle (quota.ts) — Workers-native, free, no KV/D1 traffic.
 # Approximate by design (fixed 60s window, not a sliding hour); the exact
@@ -71,7 +75,7 @@ run_worker_first = true
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "cve_staging_d1"
-database_id = "REPLACE_AFTER_PROVISIONING"
+database_id = "4917885d-bcb3-4d4b-afdd-9dd2e425b86f"
 migrations_dir = "../../migrations"
 
 [[env.staging.vectorize]]
@@ -87,7 +91,7 @@ binding = "AI"
 
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_AFTER_PROVISIONING"
+id = "62a704cae052492faa607582bf509f1a"
 
 [[env.staging.ratelimits]]
 name = "RATE_LIMITER"

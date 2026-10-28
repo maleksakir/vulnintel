@@ -31,10 +31,13 @@ crons = [
   "0 4 * * *",       # 04:00 UTC daily — IP allowlist expiry prune
 ]
 
+# D1/KV resource IDs are not secrets (confirmed in the 2026-10-28 security
+# review) — committed directly rather than left as REPLACE_AFTER_PROVISIONING
+# placeholders, which had silently broken the staging deploy job in CI.
 [[d1_databases]]
 binding = "DB"
 database_name = "cve_prod_d1"
-database_id = "REPLACE_AFTER_PROVISIONING"
+database_id = "277f037d-d7b2-405e-b639-6fef206f260c"
 migrations_dir = "../../migrations"
 
 [[vectorize]]
@@ -54,7 +57,7 @@ binding = "AI"
 # does not serve a stale snapshot. See Section 2.7 for the invalidation map.
 [[kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_AFTER_PROVISIONING"
+id = "6a5b96655a224e0cabccfd3611fa57fe"
 
 # Retry queue for failed per-record persistence. DLQ binding is in the
 # producer config; the queue consumer worker subscribes separately.
@@ -87,7 +90,7 @@ name = "threat-lens-ingest-staging"
 [[env.staging.d1_databases]]
 binding = "DB"
 database_name = "cve_staging_d1"
-database_id = "REPLACE_AFTER_PROVISIONING"
+database_id = "4917885d-bcb3-4d4b-afdd-9dd2e425b86f"
 migrations_dir = "../../migrations"
 
 [[env.staging.vectorize]]
@@ -103,7 +106,7 @@ binding = "AI"
 
 [[env.staging.kv_namespaces]]
 binding = "CACHE"
-id = "REPLACE_AFTER_PROVISIONING"
+id = "62a704cae052492faa607582bf509f1a"
 
 [[env.staging.queues.producers]]
 queue = "cve-ingest-retry-staging"
