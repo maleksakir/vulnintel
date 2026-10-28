@@ -1,5 +1,6 @@
 import { errorResponse } from '$lib/server/errorResponse';
 import { getCveDetail } from '$lib/server/queries/getCveDetail';
+import { checkRateLimit } from '$lib/server/quota';
 import { isValidCveId } from '$lib/server/validate/index';
 import type { RequestHandler } from './$types';
 
@@ -7,6 +8,21 @@ const TTL = 300;
 
 export const GET: RequestHandler = async ({ params, platform, locals }) => {
   const env = platform!.env;
+
+  // CVE IDs are sequentially enumerable, and a cache miss writes a new KV
+  // key per distinct ID — unthrottled, this is the same KV-write-storm
+  // shape as the 2026-10-27 incident. See quota.ts's checkRateLimit doc.
+  const rate = await checkRateLimit(env.RATE_LIMITER, locals.clientIp);
+  if (!rate.allowed) {
+    return errorResponse(
+      'RATE_LIMITED',
+      'Rate limit reached. Try again shortly.',
+      locals.cfRay,
+      429,
+      { retryAfterSeconds: 60 },
+    );
+  }
+
   const cveId = (params.id ?? '').toUpperCase();
 
   if (!isValidCveId(cveId)) {

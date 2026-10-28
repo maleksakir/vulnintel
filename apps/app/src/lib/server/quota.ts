@@ -50,3 +50,22 @@ export async function checkAndIncrementQuota(
 
   return { allowed: true };
 }
+
+/**
+ * Lightweight per-IP throttle for the cache-lookup routes (cve/[id],
+ * affected-products, metrics, threat-intel/kev, threat-intel/epss) — just
+ * the native rate-limit binding, no D1 traffic at all. Found missing from
+ * all of these during the 2026-10-28 security review: cve/[id]'s cache key
+ * is `cve:${cveId}`, and CVE IDs are sequentially enumerable, so an
+ * unthrottled client could generate effectively unlimited distinct KV
+ * writes the same way the 2026-10-27 incident did. Shares the same
+ * RATE_LIMITER binding/key as search, so switching routes doesn't let a
+ * client multiply their effective throughput.
+ */
+export async function checkRateLimit(
+  rateLimiter: RateLimit,
+  clientIp: string,
+): Promise<QuotaResult> {
+  const { success } = await rateLimiter.limit({ key: clientIp });
+  return success ? { allowed: true } : { allowed: false, reason: 'RATE_LIMITED' };
+}
