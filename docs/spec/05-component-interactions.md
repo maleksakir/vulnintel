@@ -328,6 +328,26 @@ on origin.
      attaches the data needed for the result list.
   5. **Trim** to `limit` (default 25, max 50).
 
+  > **Drift flag (2026-10-29, `docs-writer`):** `apps/app/src/lib/server/rerank.ts`
+  > now exists in code and adds a reranking step between steps 4 and 5 above
+  > — `@cf/baai/bge-reranker-base` reorders the top ~40 post-filter
+  > candidates, fused into the RRF score as a third term rather than
+  > replacing it (so exact lexical/CVE-ID matches stay protected). It is
+  > optional and budget-gated: it skips entirely on exact-CVE-ID queries,
+  > `similarTo`-only requests, fewer than 2 filtered candidates, an
+  > already-failed embed in the same request, or once a 1,000-reranked-
+  > searches/day account-wide cap trips — in every skip case (and on any
+  > reranker failure) the pipeline falls back to steps 1–5 exactly as
+  > specified here, silently, with no error surfaced. Per this file's own
+  > rule that spec/code drift is a bug, this is real drift — but it's
+  > reported here, not resolved, per `docs-writer`'s charter: whether this
+  > spec's pipeline description should be formally extended to a 6-step
+  > pipeline (and whether an optional/budget-gated step belongs in a spec
+  > that otherwise describes unconditional behavior) is a `planner` decision.
+  > See `docs/EXECUTION_PLAN.md`'s Phase 2 "Reranker on search" row for the
+  > full design and status (code + tests + security review complete, not
+  > yet deployed).
+
 - **Response 200:**
 
   ```ts

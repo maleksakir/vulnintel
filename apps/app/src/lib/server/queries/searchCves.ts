@@ -6,6 +6,15 @@ import type {
 } from '@threat-lens/contracts';
 import { embed } from '../embed';
 import { checkAndIncrementQuota } from '../quota';
+import {
+  fuseRerank,
+  logRerankAttempt,
+  RERANK_DAILY_SEARCH_CAP,
+  RERANK_DOC_MAX_CHARS,
+  RERANK_WEIGHT,
+  rerank,
+  rerankWindowSize,
+} from '../rerank';
 
 interface CveMetaRow {
   cve_id: string;
@@ -73,6 +82,10 @@ export async function searchCves(
 
   // ── Vectorize semantic search ─────────────────────────────────────────────
   let queryVec: number[] | null = null;
+  // Tracked so the rerank stage below can skip entirely when the earlier
+  // embed() call already signalled trouble with the shared Workers AI
+  // neuron pool — a second AI call would just add latency for nothing.
+  let embedFailed = false;
   if (req.similarTo) {
     try {
       const [existing] = await env.VECTORIZE.getByIds([req.similarTo]);
@@ -85,6 +98,7 @@ export async function searchCves(
       queryVec = await embed(env.AI, req.query);
     } catch {
       queryVec = null;
+      embedFailed = true;
     }
   }
 
@@ -151,8 +165,50 @@ export async function searchCves(
     return true;
   });
 
-  const truncated = filtered.length > limit;
-  const page = filtered.slice(0, limit);
+  // ── Reranking (quality pass, budget-gated, never blocks search) ──────────
+  // Operates on `filtered` — already D1-post-filtered — so no neurons are
+  // spent on candidates vendor/severity/kev/cvss filters already dropped,
+  // and fetchCveMeta's descriptions (metaMap) are reused for free. Fused in
+  // as a third RRF-style term (see fuseRerank) rather than replacing RRF
+  // order outright, so exact lexical/CVE-ID matches stay protected.
+  let rankedFiltered = filtered;
+  const rerankQuery = req.query;
+  const canAttemptRerank =
+    typeof rerankQuery === 'string' &&
+    rerankQuery.trim().length > 0 &&
+    !isExactId &&
+    filtered.length >= 2 &&
+    !embedFailed;
+
+  if (canAttemptRerank) {
+    // Budget gate: piggybacks on the pre-increment count checkAndIncrementQuota
+    // already read for the org-wide quota check above — zero extra D1/KV
+    // operations, no new counter (see quota.ts and CLAUDE.md's KV-quota
+    // incident). Once the daily cap is hit, every search for the rest of
+    // the UTC day silently falls back to plain RRF ordering.
+    const dailyCount = quota.dailyCount ?? 0;
+    if (dailyCount >= RERANK_DAILY_SEARCH_CAP) {
+      logRerankAttempt('budget-skip', 0, 0);
+    } else {
+      const windowSize = rerankWindowSize(limit);
+      const window = filtered.slice(0, windowSize);
+      const docs = window.map(([id]) => {
+        const row = metaMap.get(id)!;
+        const vendors = (vendorMap.get(id) ?? []).slice(0, 3).join(' ');
+        const text = vendors ? `${vendors}: ${row.description}` : row.description;
+        return text.slice(0, RERANK_DOC_MAX_CHARS);
+      });
+
+      const order = await rerank(env.AI, rerankQuery, docs);
+      if (order) {
+        const fusedWindow = fuseRerank(window, order, K, RERANK_WEIGHT);
+        rankedFiltered = [...fusedWindow, ...filtered.slice(windowSize)];
+      }
+    }
+  }
+
+  const truncated = rankedFiltered.length > limit;
+  const page = rankedFiltered.slice(0, limit);
 
   const results: SearchResultItem[] = page.map(([id, score]) => {
     const row = metaMap.get(id)!;

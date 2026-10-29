@@ -45,7 +45,11 @@ describe('checkAndIncrementQuota', () => {
     const dbPrepare = vi.spyOn(env.DB, 'prepare');
     const result = await checkAndIncrementQuota(env.DB, env.RATE_LIMITER, '203.0.113.6');
 
-    expect(result).toEqual({ allowed: false, reason: 'GLOBAL_QUOTA_EXHAUSTED' });
+    expect(result).toEqual({
+      allowed: false,
+      reason: 'GLOBAL_QUOTA_EXHAUSTED',
+      dailyCount: 50_000,
+    });
     // Only the read happened — no attempt to increment past the cap.
     expect(dbPrepare).toHaveBeenCalledTimes(1);
     expect(dbPrepare.mock.calls[0]?.[0]).toMatch(/^\s*SELECT/i);
@@ -62,7 +66,7 @@ describe('checkAndIncrementQuota', () => {
     const dbPrepare = vi.spyOn(env.DB, 'prepare');
     const result = await checkAndIncrementQuota(env.DB, env.RATE_LIMITER, '203.0.113.7');
 
-    expect(result).toEqual({ allowed: true });
+    expect(result).toEqual({ allowed: true, dailyCount: 0 });
     const writeSql = dbPrepare.mock.calls
       .map(([sql]) => sql)
       .filter((sql) => /^\s*INSERT/i.test(sql));
@@ -83,7 +87,7 @@ describe('checkAndIncrementQuota', () => {
 
     const result = await checkAndIncrementQuota(env.DB, env.RATE_LIMITER, '203.0.113.8');
 
-    expect(result).toEqual({ allowed: true });
+    expect(result).toEqual({ allowed: true, dailyCount: 41 });
     const row = await env.DB.prepare('SELECT query_count FROM search_quota_ledger WHERE day = ?')
       .bind(DAY)
       .first<{ query_count: number }>();

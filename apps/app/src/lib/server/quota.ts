@@ -3,6 +3,16 @@ const ORG_DAILY_LIMIT = 50_000;
 export interface QuotaResult {
   allowed: boolean;
   reason?: 'RATE_LIMITED' | 'GLOBAL_QUOTA_EXHAUSTED';
+  /**
+   * `search_quota_ledger.query_count` for today as read BEFORE this
+   * request's increment — i.e. how many searches were already served today,
+   * not counting this one. Omitted when the rate limiter short-circuited
+   * before the D1 read ever ran (no count was read). searchCves() uses this
+   * to gate query-time reranking against RERANK_DAILY_SEARCH_CAP (see
+   * rerank.ts) by piggybacking on the read this function already does —
+   * zero extra D1/KV operations, no new counter.
+   */
+  dailyCount?: number;
 }
 
 /**
@@ -31,9 +41,10 @@ export async function checkAndIncrementQuota(
     .prepare('SELECT query_count FROM search_quota_ledger WHERE day = ?')
     .bind(day)
     .first<{ query_count: number }>();
+  const dailyCount = orgRow?.query_count ?? 0;
 
-  if ((orgRow?.query_count ?? 0) >= ORG_DAILY_LIMIT) {
-    return { allowed: false, reason: 'GLOBAL_QUOTA_EXHAUSTED' };
+  if (dailyCount >= ORG_DAILY_LIMIT) {
+    return { allowed: false, reason: 'GLOBAL_QUOTA_EXHAUSTED', dailyCount };
   }
 
   // Increment best-effort — quota enforcement doesn't need perfect accuracy.
@@ -48,7 +59,7 @@ export async function checkAndIncrementQuota(
       /* best-effort */
     });
 
-  return { allowed: true };
+  return { allowed: true, dailyCount };
 }
 
 /**

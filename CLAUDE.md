@@ -81,6 +81,23 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   incident yet, but design future Queue-based ingest paths with this shared
   ceiling in mind, the same way D1/KV's per-resource caps are already treated
   above.
+- **Workers AI's 10,000-neurons/day free allocation is one account-wide pool,
+  shared between `apps/ingest`'s per-CVE embeddings and `apps/app`'s search
+  reranker (`apps/app/src/lib/server/rerank.ts`, `@cf/baai/bge-reranker-base`)
+  — not a per-feature budget.** Exhausting it doesn't just fail the request
+  that tripped it: a failed `embed()` call during ingestion retries into
+  `cve-ingest-retry`, exhausts its retries the same day (no `retry_delay`
+  configured), lands in the DLQ, and the next ingest pass sees an unchanged
+  `text_hash` on that record and never re-attempts the vector — a silent,
+  permanent-until-manually-fixed gap in semantic search coverage, not a
+  transient blip. This is why the reranker has a hard self-limiting daily
+  budget gate (`RERANK_DAILY_SEARCH_CAP = 1000` reranked searches/day,
+  checked against the existing search-quota-ledger read, zero new D1/KV
+  cost) and silently falls back to plain RRF ordering once tripped, rather
+  than just catching errors and hoping the shared pool has headroom. Any new
+  feature that calls `env.AI.run(...)` — ingest or app-side — draws from
+  this same pool and needs the same kind of self-limiting ceiling, not just
+  try/catch.
 - OSV.dev ingestion (`apps/ingest/src/adapters/osv.ts`, not yet deployed)
   adds two new outbound hosts beyond NVD/MITRE/CISA/FIRST.org:
   `storage.googleapis.com` (GCS per-ecosystem `modified_id.csv` export, used
