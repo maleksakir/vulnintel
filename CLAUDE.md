@@ -55,6 +55,17 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   Cron Triggers 5 per account (already fully used by `apps/ingest`). Design
   any new cron/batch job, or chart/feature that queries D1 per request, with
   these ceilings in mind.
+- **Any D1 query that runs on every page load (SSR `load` functions, not just
+  `/api/*` routes) must go through the KV cache, the same as the JSON API
+  does.** The homepage's `+page.server.ts` called `getMetrics()` (5 queries,
+  including an unfiltered `COUNT(*)` over the full `cve` table) directly,
+  unlike `/api/metrics/[window]` which wraps the identical call in
+  `cacheReadJson`. That one uncached route alone re-exhausted the 5M/day D1
+  read quota in ~7 hours from ordinary traffic — no diagnostic queries, no
+  attack, just pageviews (2026-10-29, fixed in `d7033cf`). Before adding a
+  `+page.server.ts`/`+server.ts` that queries D1, check whether the result can
+  be stale for a few minutes; if so, wrap it in `cacheReadJson` like the
+  existing API routes do.
 - **Live-debugging D1 issues against the real account spends from the same
   daily read budget production traffic uses.** A round of diagnostic `curl`
   calls to the D1 HTTP API (one alone read 733k rows) exhausted the day's 5M
