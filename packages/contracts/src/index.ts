@@ -38,6 +38,7 @@ export type {
 } from './api.js';
 export type {
   EpssPatch,
+  EpssQueueMessage,
   IngestSource,
   KevPatch,
   NormalizedCpe,

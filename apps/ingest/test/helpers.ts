@@ -84,10 +84,27 @@ export function spyOnBindings() {
     }));
   const vectorizeGetByIds = vi.spyOn(testEnv.VECTORIZE, 'getByIds').mockResolvedValue([]);
   const dbBatch = vi.spyOn(testEnv.DB, 'batch');
-  const dbPrepare = vi.spyOn(testEnv.DB, 'prepare');
   const cacheDelete = vi.spyOn(testEnv.CACHE, 'delete');
   const retryQueueSend = vi.spyOn(testEnv.RETRY_QUEUE, 'send');
   const analyticsWrite = vi.spyOn(testEnv.ANALYTICS, 'writeDataPoint');
+
+  // `boundCalls` records, per `db.prepare(sql).bind(...args)` call, the SQL
+  // text and how many params were bound to it — the regression signal for
+  // D1's 100-bound-param-per-query cap (see test/epssPatchBatch.test.ts).
+  // Implemented by wrapping `prepare`'s return value rather than just
+  // spying on `prepare` itself, since the param count lives on the
+  // chained `.bind(...)` call, not on `prepare(sql)`.
+  const boundCalls: { sql: string; paramCount: number }[] = [];
+  const originalPrepare = testEnv.DB.prepare.bind(testEnv.DB);
+  const dbPrepare = vi.spyOn(testEnv.DB, 'prepare').mockImplementation((sql: string) => {
+    const stmt = originalPrepare(sql);
+    const originalBind = stmt.bind.bind(stmt);
+    vi.spyOn(stmt, 'bind').mockImplementation((...args: unknown[]) => {
+      boundCalls.push({ sql, paramCount: args.length });
+      return originalBind(...(args as never[]));
+    });
+    return stmt;
+  });
 
   const spies = {
     aiRun,
@@ -102,9 +119,11 @@ export function spyOnBindings() {
 
   return {
     ...spies,
+    boundCalls,
     /** Clears call history on every spy without discarding their mock implementations. */
     clearAll() {
       for (const spy of Object.values(spies)) spy.mockClear();
+      boundCalls.length = 0;
     },
     /** SQL strings passed to `db.prepare`, in call order. */
     preparedSql(): string[] {

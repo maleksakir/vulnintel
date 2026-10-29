@@ -1,7 +1,8 @@
-import type { RetryMessage } from '@threat-lens/contracts';
+import type { EpssQueueMessage, RetryMessage } from '@threat-lens/contracts';
 import { processRecord } from './lib/server/processRecord';
 import { runAgingSweep } from './pipelines/aging';
 import { runDailyFullDelta } from './pipelines/daily';
+import { runEpssConsumer } from './pipelines/epssQueue';
 import { runIpListPrune } from './pipelines/iplist';
 import { runKevFastLane } from './pipelines/kev';
 import { runWeeklyReconciliation } from './pipelines/reconcile';
@@ -44,14 +45,35 @@ export default {
   },
 
   /**
-   * Retry queue consumer (§5.1.7).
-   * cve-ingest-retry → max_retries=5 → exhausted messages land in cve-ingest-dlq.
+   * Queue consumer — dispatches by queue name since this Worker now
+   * subscribes to two distinct queues.
    *
-   * UPSERT_ALL: D1 write failed on a previous attempt — retry full pipeline.
-   * VECTORIZE_ONLY: D1 succeeded but Vectorize/AI failed — skip D1, re-run Vectorize.
-   *   If message.vector is present, pass it through to avoid a second AI call.
+   * `epss-ingest` (+ `epss-ingest-staging`): one message = one chunk of a
+   *   day's EPSS CSV snapshot, produced by pipelines/daily.ts. Routed by
+   *   `startsWith` rather than exact match so the `-staging` suffixed queue
+   *   matches too, same reasoning the retry queue would need if staging ever
+   *   got its own traffic (see wrangler.toml's staging section).
+   *   max_retries=3 → exhausted messages land in epss-ingest-dlq.
+   *
+   * Everything else falls through to the existing retry-queue handling
+   * (§5.1.7): cve-ingest-retry → max_retries=5 → cve-ingest-dlq.
+   *   UPSERT_ALL: D1 write failed on a previous attempt — retry full pipeline.
+   *   VECTORIZE_ONLY: D1 succeeded but Vectorize/AI failed — skip D1, re-run Vectorize.
+   *     If message.vector is present, pass it through to avoid a second AI call.
    */
   async queue(batch: MessageBatch, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (batch.queue.startsWith('epss-ingest')) {
+      for (const msg of batch.messages) {
+        try {
+          await runEpssConsumer(msg.body as EpssQueueMessage, env, ctx);
+          msg.ack();
+        } catch {
+          msg.retry();
+        }
+      }
+      return;
+    }
+
     for (const msg of batch.messages) {
       try {
         const body = msg.body as RetryMessage;

@@ -3,11 +3,18 @@ import { fetchEpssCsv } from '../adapters/epss';
 import { fetchMitreDelta } from '../adapters/mitre';
 import { fetchNvdDelta } from '../adapters/nvd';
 import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
-import { applyEpssPatchBatch, processRecord } from '../lib/server/processRecord';
+import { processRecord } from '../lib/server/processRecord';
 import type { Env } from '../types';
 
 const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety overlap
-const EPSS_BATCH_SIZE = 200; // chunk size for the batched change-detection read
+// EPSS_QUEUE message chunk size. Cloudflare Queues caps a message at 128KB
+// (131,072 bytes) of JSON. Measured `JSON.stringify({ patches: [...] })`
+// size for real-shaped EpssPatch records: ~102 bytes/patch, so 1,000 patches
+// serializes to ~103KB — a ~28KB (≈21%) margin under the cap for the
+// occasional longer cveId/epssUpdatedAt. (1,500 patches, the number
+// originally proposed for this constant, measured at ~154KB — over the cap —
+// so don't raise this without re-measuring actual serialized size.)
+const EPSS_MESSAGE_CHUNK_SIZE = 1000;
 
 /**
  * Daily full delta (cron: 0 1 * * *).
@@ -83,6 +90,19 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   );
 
   // ── EPSS ──────────────────────────────────────────────────────────────────
+  // This pipeline only fetches, chunks, and enqueues EPSS patches — it does
+  // NOT write them to D1 itself. FIRST.org's 250k+-row full daily snapshot
+  // can't be change-detected and written within this single cron invocation
+  // alongside NVD+MITRE: D1 caps queries per Worker invocation at 50, and
+  // even chunking SELECTs at the 100-bound-param max would need ~2,500 of
+  // them just to scan the file. The actual D1 work now happens in
+  // pipelines/epssQueue.ts, run as separate queue-consumer invocations, each
+  // with its own fresh 50-query budget (see EPSS_QUEUE in wrangler.toml).
+  //
+  // Because of that split, `epssProcessed`/`epssFailed`/the status passed to
+  // markIngestFinished below describe the ENQUEUE outcome (did every patch
+  // make it onto the queue), not the D1-write outcome — per-row write
+  // success/failure now happens later, outside this cron run's visibility.
   let epssProcessed = 0;
   let epssFailed = 0;
   let epssError: string | undefined;
@@ -90,20 +110,24 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   let epssBatch: EpssPatch[] = [];
   const flushEpssBatch = async () => {
     if (epssBatch.length === 0) return;
-    const batch = epssBatch;
+    const chunk = epssBatch;
     epssBatch = [];
     try {
-      await applyEpssPatchBatch(batch, env, ctx);
-      epssProcessed += batch.length;
+      // Sequential, not concurrent: Queue send/sendBatch calls share a
+      // 6-simultaneous-connection cap per invocation, and a plain sequence
+      // of awaits (one chunk at a time, as the for-await loop below already
+      // does) never approaches that.
+      await env.EPSS_QUEUE.send({ patches: chunk });
+      epssProcessed += chunk.length;
     } catch {
-      epssFailed += batch.length;
+      epssFailed += chunk.length;
     }
   };
 
   try {
     for await (const patch of fetchEpssCsv()) {
       epssBatch.push(patch);
-      if (epssBatch.length >= EPSS_BATCH_SIZE) {
+      if (epssBatch.length >= EPSS_MESSAGE_CHUNK_SIZE) {
         await flushEpssBatch();
       }
     }

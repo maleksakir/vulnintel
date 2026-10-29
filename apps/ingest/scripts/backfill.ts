@@ -41,7 +41,12 @@ import { fetchEpssCsv } from '../src/adapters/epss';
 import { fetchKevCatalog } from '../src/adapters/kev';
 import { applyEpssPatchBatch, applyKevPatch, processRecord } from '../src/lib/server/processRecord';
 
-const EPSS_BATCH_SIZE = 200; // mirrors src/pipelines/daily.ts — keep in sync
+// 200 is safe regardless of applyEpssPatchBatch's internal 100-bound-param
+// SELECT_PARAM_CHUNK_SIZE (see src/lib/server/processRecord.ts) — the
+// function sub-chunks any input size internally, so this no longer needs to
+// match daily.ts's own chunk size (which was renamed to
+// EPSS_MESSAGE_CHUNK_SIZE and now sizes Queue messages, not D1 query batches).
+const EPSS_BATCH_SIZE = 200;
 
 import type { Env } from '../src/types';
 

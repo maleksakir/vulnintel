@@ -90,4 +90,60 @@ describe('applyEpssPatchBatch', () => {
     expect(unchanged2?.epss_score).toBe(0.3);
     expect(changed).toEqual({ epss_score: 0.77, epss_percentile: 0.88 });
   });
+
+  // Regression test for the actual bug this task fixes: D1 caps bound
+  // parameters at 100 per query. The previous implementation built the
+  // `WHERE cve_id IN (...)` read from the whole input array in one query —
+  // fine for the 2-3 row fixtures above, but a 250-row input (or a real
+  // 250k+-row EPSS snapshot) would have blown past that cap. This asserts
+  // the chunking actually happens, not just that the call succeeds.
+  it('input larger than 100 patches (250): does not throw, and no single SELECT exceeds 100 bound params', async () => {
+    const patches: EpssPatch[] = Array.from({ length: 250 }, (_, i) => ({
+      cveId: `CVE-2026-3${String(i).padStart(4, '0')}`,
+      epssScore: 0.5,
+      epssPercentile: 0.5,
+      epssUpdatedAt: Date.now(),
+    }));
+    // cve_state.cve_id is FK-constrained to cve(cve_id) — seed a cve row
+    // per patch so the writes this test provokes don't fail on that
+    // constraint instead of exercising the thing under test.
+    await Promise.all(patches.map((p) => seedCveRow({ cveId: p.cveId })));
+
+    const spies = spyOnBindings();
+
+    await expect(
+      applyEpssPatchBatch(patches, testEnv, createExecutionContext()),
+    ).resolves.not.toThrow();
+
+    const selectCalls = spies.boundCalls.filter((c) => /WHERE cve_id IN/i.test(c.sql));
+
+    // It must actually be chunked (more than one SELECT), not just happen
+    // not to throw — a single 250-param query would pass "doesn't throw" in
+    // this local D1 simulator even though it violates the real D1 cap.
+    expect(selectCalls.length).toBeGreaterThan(1);
+    for (const call of selectCalls) {
+      expect(call.paramCount).toBeLessThanOrEqual(100);
+    }
+    // Exact expected chunking for 250 patches at 100/chunk: 100, 100, 50.
+    expect(selectCalls.map((c) => c.paramCount)).toEqual([100, 100, 50]);
+  }, 30_000);
+
+  it('input of exactly 1,000 patches (one EPSS_MESSAGE_CHUNK_SIZE worth): still never exceeds 100 bound params per SELECT', async () => {
+    const patches: EpssPatch[] = Array.from({ length: 1000 }, (_, i) => ({
+      cveId: `CVE-2026-4${String(i).padStart(4, '0')}`,
+      epssScore: 0.25,
+      epssPercentile: 0.25,
+      epssUpdatedAt: Date.now(),
+    }));
+    await Promise.all(patches.map((p) => seedCveRow({ cveId: p.cveId })));
+
+    const spies = spyOnBindings();
+    await applyEpssPatchBatch(patches, testEnv, createExecutionContext());
+
+    const selectCalls = spies.boundCalls.filter((c) => /WHERE cve_id IN/i.test(c.sql));
+    expect(selectCalls).toHaveLength(10); // 1000 / 100
+    for (const call of selectCalls) {
+      expect(call.paramCount).toBeLessThanOrEqual(100);
+    }
+  }, 30_000);
 });

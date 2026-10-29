@@ -62,6 +62,14 @@ export interface EpssPatch {
   epssUpdatedAt: number; // unix ms
 }
 
+/** EPSS queue message shape — one chunk of a day's FIRST EPSS CSV snapshot,
+ *  produced by `pipelines/daily.ts` and consumed by `pipelines/epssQueue.ts`.
+ *  Kept to a chunk size whose JSON stays comfortably under Cloudflare
+ *  Queues' 128KB per-message cap (see EPSS_MESSAGE_CHUNK_SIZE in daily.ts). */
+export interface EpssQueueMessage {
+  patches: EpssPatch[];
+}
+
 /** Retry queue message shape (Section 3.5.1). */
 export interface RetryMessage {
   attempt: number; // 1-based, incremented by the queue on retry

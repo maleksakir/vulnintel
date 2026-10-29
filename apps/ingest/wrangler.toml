@@ -72,6 +72,27 @@ max_batch_timeout = 30
 max_retries = 5
 dead_letter_queue = "cve-ingest-dlq"
 
+# EPSS queue. FIRST.org ships a full 250k+-row daily snapshot, not a delta —
+# the change-detection reads + writes for that can't fit in the single daily
+# cron invocation's 50-D1-query budget (D1 free-tier limit) alongside the
+# same invocation's NVD+MITRE work. pipelines/daily.ts now only
+# fetches+chunks+enqueues onto this queue; pipelines/epssQueue.ts's consumer
+# does the actual D1 work, one message (~1,000 patches) per invocation.
+# max_batch_size = 1 keeps that one-message-per-invocation guarantee exact,
+# so each consumer invocation's D1 query count stays small and predictable
+# (~1,000/100 = 10 SELECT sub-chunks + a handful of batched writes —
+# comfortably under 50).
+[[queues.producers]]
+queue = "epss-ingest"
+binding = "EPSS_QUEUE"
+
+[[queues.consumers]]
+queue = "epss-ingest"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "epss-ingest-dlq"
+
 # ── Staging environment ───────────────────────────────────────────────────────
 # Wrangler does NOT inherit top-level bindings or triggers into
 # [env.staging]; every binding and the cron list must be redeclared here.
@@ -125,3 +146,18 @@ max_batch_size = 25
 max_batch_timeout = 30
 max_retries = 5
 dead_letter_queue = "cve-ingest-dlq-staging"
+
+# Isolated from production's epss-ingest queue for the same reason the
+# staging section above is isolated from production's crons/cve-ingest-retry
+# queue (see the explanatory comment at the top of this section): a distinct
+# queue name + DLQ so staging traffic/retries never land in production's.
+[[env.staging.queues.producers]]
+queue = "epss-ingest-staging"
+binding = "EPSS_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "epss-ingest-staging"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "epss-ingest-dlq-staging"

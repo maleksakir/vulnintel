@@ -50,6 +50,25 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   (`import()` inside `onMount`, gated by `import.meta.env.SSR` so the library
   never enters the server bundle) unless proven cheap enough to server-render
   by actually measuring it, not by assuming "SVG = safe."
+- **D1 caps 100 bound parameters per query on every plan, and 50 D1 queries
+  per Worker invocation on the Free plan (1,000 on Paid) — the same
+  underlying subrequest-cap mechanism as the "too many subrequests" error
+  that killed the lost CSAF/ICS adapters (see `docs/EXECUTION_PLAN.md`'s
+  "Lost ingestion sources" row).** Any ingestion path that processes a
+  large/unbounded external dataset — a full daily snapshot, not a delta —
+  must spread its D1 reads/writes across multiple Queue-consumer
+  invocations, each with its own fresh per-invocation budget; never do that
+  work inline within one cron invocation. Found 2026-10-29 in
+  `apps/ingest`'s EPSS path (added 2026-10-27, `948b99f`): a
+  `WHERE cve_id IN (...)` SELECT bound one param per row against FIRST.org's
+  250k+-row daily full snapshot, with all reads/writes running inline in the
+  single daily cron invocation — both caps would be blown through. Fixed by
+  moving the D1 work into a dedicated `epss-ingest` Queue consumer
+  (`apps/ingest/src/pipelines/epssQueue.ts`, `max_batch_size = 1` so every
+  message gets its own fresh 50-query budget); the surviving inline SELECT
+  is chunked at the 100-param cap regardless of caller
+  (`apps/ingest/src/lib/server/processRecord.ts`). See
+  `docs/EXECUTION_PLAN.md`'s Phase 0 table for status — not yet deployed.
 - Cloudflare free tier in general: KV reads 100k/day, writes+deletes+lists
   1k/day combined; D1 reads 5M/day, writes 100k/day, 500MB per database;
   Cron Triggers 5 per account (already fully used by `apps/ingest`). Design

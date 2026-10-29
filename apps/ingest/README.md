@@ -12,6 +12,7 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 | AI | Workers AI `@cf/baai/bge-base-en-v1.5` — ingest-time embeddings |
 | Cache | Cloudflare KV — write-only: invalidates `CACHE` keys after record updates |
 | Retry | Cloudflare Queues (`cve-ingest-retry` → DLQ `cve-ingest-dlq`) |
+| EPSS ingest | Cloudflare Queues (`epss-ingest` → DLQ `epss-ingest-dlq`) — decouples EPSS's D1 writes from the daily cron invocation (see below) |
 | Telemetry | Analytics Engine — one event per record, one event per pipeline run |
 | Types | `@threat-lens/contracts` workspace package |
 
@@ -70,13 +71,16 @@ processRecord(record)
 
 | File | Pipeline | Key behaviour |
 |------|----------|---------------|
-| `daily.ts` | `runDailyFullDelta` | Runs NVD → MITRE → EPSS in sequence; writes `ingest_run` rows |
+| `daily.ts` | `runDailyFullDelta` | Runs NVD → MITRE inline (`processRecord` per record). EPSS is fetch-chunk-enqueue only — no D1 writes in this invocation, see `epssQueue.ts` below. Writes `ingest_run` rows for all three sources (EPSS's reflects enqueue outcome, not D1-write outcome) |
+| `epssQueue.ts` | `runEpssConsumer` | Queue consumer for `epss-ingest`/`epss-ingest-staging`. One invocation per queued message (~1,000 EPSS patches); applies them to D1 via `applyEpssPatchBatch`'s two-hash-style change detection. Split out from `daily.ts` because FIRST.org's feed is a 250k+-row full daily snapshot — doing the change-detection reads + writes inline would exceed D1's 100-bound-param-per-query and 50-query-per-invocation Free-plan caps; each queue invocation gets its own fresh budget instead |
 | `kev.ts` | `runKevFastLane` | Applies all KEV patches; invalidates `threat:kev:list` KV key |
 | `reconcile.ts` | `runWeeklyReconciliation` | 30-day NVD window; two-hash means unchanged records are cheap no-ops |
 | `aging.ts` | `runAgingSweep` | Hard-deletes CVEs older than 24 months (KEV-exempt); rebuilds `cpe_search` FTS; writes `cve_metrics_daily` |
 | `iplist.ts` | `runIpListPrune` | Reads Cloudflare IP List via API; deletes items with `expires:<timestamp>` in past |
 
-## Queue Consumer
+## Queue Consumers
+
+The `queue()` handler in `src/index.ts` dispatches on `batch.queue` name:
 
 ```
 cve-ingest-retry → [ingest worker queue handler]
@@ -85,7 +89,19 @@ cve-ingest-retry → [ingest worker queue handler]
   └─ VECTORIZE_ONLY → processRecord (skips D1, re-runs Vectorize + optional pre-computed vector)
                                                     ↓ on 5th failure
                                             cve-ingest-dlq
+
+epss-ingest (+ -staging) → runEpssConsumer (src/pipelines/epssQueue.ts)
+  │
+  └─ applyEpssPatchBatch — chunked SELECT (100 bound params/query) +
+     batched writes (500/sub-batch) against cve_state, skip-if-unchanged
+                                                    ↓ on 3rd failure
+                                            epss-ingest-dlq
 ```
+
+`max_batch_size = 1` on the `epss-ingest` consumer (`wrangler.toml`) means
+one queue message = one invocation, so each gets its own fresh 50-D1-query
+budget — the reason this queue exists rather than EPSS going through
+`cve-ingest-retry`.
 
 ## Backfill (`src/scripts/backfill.ts`)
 
@@ -139,6 +155,7 @@ The ingest worker deletes these keys after record updates so the app worker neve
 | `AI` | Workers AI | Ingest-time embedding (`@cf/baai/bge-base-en-v1.5`) |
 | `ANALYTICS` | Analytics Engine | Pipeline telemetry |
 | `RETRY_QUEUE` | Queue producer | Failed record retry |
+| `EPSS_QUEUE` | Queue producer | EPSS patch chunks, produced by `daily.ts`, consumed by `epssQueue.ts` |
 
 ## Secrets
 

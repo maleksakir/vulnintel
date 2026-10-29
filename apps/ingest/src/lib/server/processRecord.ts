@@ -276,12 +276,29 @@ interface EpssStateRow {
   epss_percentile: number | null;
 }
 
+// D1's bound-parameter cap is 100 per query, same on every plan
+// (https://developers.cloudflare.com/d1/platform/limits/). The
+// `WHERE cve_id IN (...)` read below binds one placeholder per patch, so it
+// must never be built from more than this many patches at once.
+const SELECT_PARAM_CHUNK_SIZE = 100;
+// `db.batch()` counts as ONE query toward the 50-queries-per-invocation cap
+// regardless of how many statements it holds, so this sub-batching is purely
+// for memory/predictability, not to stay under that cap.
+const WRITE_SUB_BATCH_SIZE = 500;
+
 /**
  * Batched version of the EPSS patch path. FIRST.org ships a full daily
  * snapshot (250k+ rows), not a delta — a SELECT-per-row change check (the
  * previous approach) burns one D1 read per row, ~250k/day on its own. This
  * does one batch read per chunk (`WHERE cve_id IN (...)`) instead, and only
  * writes/invalidates cache for rows that actually changed.
+ *
+ * Internally defensive regardless of `patches.length`: the SELECT is chunked
+ * to at most `SELECT_PARAM_CHUNK_SIZE` (100) bound params per query — D1's
+ * hard per-query cap — so callers do not need to pre-chunk correctly
+ * themselves. Callers are still expected to keep each call to a size that
+ * fits comfortably within one invocation's 50-D1-query budget (see
+ * `pipelines/epssQueue.ts`, which calls this once per queue message).
  */
 export async function applyEpssPatchBatch(
   patches: EpssPatch[],
@@ -290,14 +307,17 @@ export async function applyEpssPatchBatch(
 ): Promise<void> {
   if (patches.length === 0) return;
 
-  const placeholders = patches.map(() => '?').join(',');
-  const { results } = await env.DB.prepare(
-    `SELECT cve_id, epss_score, epss_percentile FROM cve_state WHERE cve_id IN (${placeholders})`,
-  )
-    .bind(...patches.map((p) => p.cveId))
-    .all<EpssStateRow>();
-
-  const current = new Map(results.map((r) => [r.cve_id, r]));
+  const current = new Map<string, EpssStateRow>();
+  for (let i = 0; i < patches.length; i += SELECT_PARAM_CHUNK_SIZE) {
+    const chunk = patches.slice(i, i + SELECT_PARAM_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT cve_id, epss_score, epss_percentile FROM cve_state WHERE cve_id IN (${placeholders})`,
+    )
+      .bind(...chunk.map((p) => p.cveId))
+      .all<EpssStateRow>();
+    for (const r of results) current.set(r.cve_id, r);
+  }
 
   const changed = patches.filter((p) => {
     const cur = current.get(p.cveId);
@@ -307,20 +327,23 @@ export async function applyEpssPatchBatch(
   if (changed.length === 0) return;
 
   const now = Date.now();
-  await env.DB.batch(
-    changed.map((p) =>
-      env.DB.prepare(
-        `INSERT INTO cve_state
-           (cve_id, kev_listed, epss_score, epss_percentile, epss_updated_at, state_updated_at)
-         VALUES (?, 0, ?, ?, ?, ?)
-         ON CONFLICT (cve_id) DO UPDATE SET
-           epss_score       = excluded.epss_score,
-           epss_percentile  = excluded.epss_percentile,
-           epss_updated_at  = excluded.epss_updated_at,
-           state_updated_at = excluded.state_updated_at`,
-      ).bind(p.cveId, p.epssScore, p.epssPercentile, p.epssUpdatedAt, now),
-    ),
-  );
+  for (let i = 0; i < changed.length; i += WRITE_SUB_BATCH_SIZE) {
+    const sub = changed.slice(i, i + WRITE_SUB_BATCH_SIZE);
+    await env.DB.batch(
+      sub.map((p) =>
+        env.DB.prepare(
+          `INSERT INTO cve_state
+             (cve_id, kev_listed, epss_score, epss_percentile, epss_updated_at, state_updated_at)
+           VALUES (?, 0, ?, ?, ?, ?)
+           ON CONFLICT (cve_id) DO UPDATE SET
+             epss_score       = excluded.epss_score,
+             epss_percentile  = excluded.epss_percentile,
+             epss_updated_at  = excluded.epss_updated_at,
+             state_updated_at = excluded.state_updated_at`,
+        ).bind(p.cveId, p.epssScore, p.epssPercentile, p.epssUpdatedAt, now),
+      ),
+    );
+  }
 
   ctx.waitUntil(Promise.all(changed.map((p) => env.CACHE.delete(`cve:${p.cveId}`))));
 }
