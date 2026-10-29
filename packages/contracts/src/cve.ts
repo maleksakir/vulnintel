@@ -70,6 +70,81 @@ export interface EpssQueueMessage {
   patches: EpssPatch[];
 }
 
+// ── OSV (GHSA) ───────────────────────────────────────────────────────────
+// GHSA-scoped, CVE-linked-only. See apps/ingest/src/adapters/osv.ts and
+// apps/ingest/src/pipelines/osv.ts for the producer/consumer that fill
+// these shapes, and migrations/0007_osv.sql for where they land in D1.
+
+/** One version-range + fix-event entry from an OSV record's affected[].ranges[]. */
+export interface OsvRangeEvent {
+  introduced?: string;
+  fixed?: string;
+  last_affected?: string;
+  limit?: string;
+}
+
+export interface OsvRange {
+  type: 'SEMVER' | 'ECOSYSTEM' | 'GIT';
+  repo?: string;
+  events: OsvRangeEvent[];
+}
+
+/** One affected-package entry, trimmed to what Threat-Lens stores. Drops
+ *  OSV's `versions[]` enumeration field — `ranges` captures what's needed
+ *  (same reasoning NormalizedCveRecord's cpes cap at 500 / references cap at
+ *  200 in processRecord.ts: bound row/write size against a pathological
+ *  upstream record). */
+export interface OsvAffectedPackage {
+  ecosystem: string;
+  name: string;
+  purl: string | null;
+  ranges: OsvRange[];
+  fixedVersions: string[];
+}
+
+/** Normalized OSV advisory. Produced by
+ *  apps/ingest/src/adapters/osv.ts's normalizeOsvRecord (raw OSV JSON →
+ *  OsvPatch | null — null only for a genuinely malformed/unparseable
+ *  record, not for "no CVE alias", which is a valid OsvPatch with an empty
+ *  `cveIds`). */
+export interface OsvPatch {
+  osvId: string; // 'GHSA-xxxx-xxxx-xxxx'
+  /** OSV's `modified` field, verbatim (nanosecond-precision ISO string).
+   *  Compared as string equality for skip-if-unchanged — see
+   *  osv_record_state.modified_at. */
+  modified: string;
+  published: string | null;
+  withdrawn: boolean;
+  /** Deduped + sorted. Empty when no CVE-shaped alias exists — callers must
+   *  track these (osv_record_state.status = 'NO_CVE_ALIAS') without giving
+   *  them a first-class non-CVE route. */
+  cveIds: string[];
+  /** Capped at 50 entries. */
+  affected: OsvAffectedPackage[];
+}
+
+/** One item of discovered (or re-link-candidate) work handed from the
+ *  OSV_DISCOVER producer to the OSV_FETCH consumer — just enough to refetch
+ *  + re-check the record; the full OsvPatch is reconstructed in the
+ *  consumer, not carried in the queue message. */
+export interface OsvFetchItem {
+  osvId: string;
+  ecosystemDir: string;
+  /** The candidate's `modified` value as last observed (CSV scan or
+   *  osv_record_state, for a re-link candidate) — NOT necessarily what the
+   *  record's current `modified` is; the consumer refetches to find out. */
+  modified: string;
+}
+
+/** osv-ingest queue message shape. A single queue carries both the
+ *  lightweight daily kick-off (OSV can't get its own Cron Trigger — all 5
+ *  Workers Free slots are already used, see wrangler.toml) and the actual
+ *  per-record fetch work, dispatched by `kind` in index.ts's queue()
+ *  handler. */
+export type OsvQueueMessage =
+  | { kind: 'OSV_DISCOVER' }
+  | { kind: 'OSV_FETCH'; items: OsvFetchItem[] };
+
 /** Retry queue message shape (Section 3.5.1). */
 export interface RetryMessage {
   attempt: number; // 1-based, incremented by the queue on retry

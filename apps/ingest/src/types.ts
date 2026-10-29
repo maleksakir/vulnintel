@@ -1,4 +1,4 @@
-import type { EpssQueueMessage, RetryMessage } from '@threat-lens/contracts';
+import type { EpssQueueMessage, OsvQueueMessage, RetryMessage } from '@threat-lens/contracts';
 
 /** Cloudflare bindings for the ingest worker — must match wrangler.toml exactly. */
 export interface Env {
@@ -18,6 +18,12 @@ export interface Env {
   // instead of writing them to D1 inline; pipelines/epssQueue.ts's consumer
   // does the actual D1 work, one message per invocation (see wrangler.toml).
   EPSS_QUEUE: Queue<EpssQueueMessage>;
+  // OSV queue producer — carries both the lightweight daily OSV_DISCOVER
+  // kick-off (sent from daily.ts, since OSV can't get its own Cron Trigger —
+  // all 5 Workers Free slots are already used) and the per-record
+  // OSV_FETCH work items; pipelines/osv.ts's runOsvDiscovery/
+  // runOsvFetchBatch consume both from the same queue (see wrangler.toml).
+  OSV_QUEUE: Queue<OsvQueueMessage>;
   // Secrets (injected via `wrangler secret put`, never in wrangler.toml).
   NVD_API_KEY: string;
   CLOUDFLARE_API_TOKEN: string;

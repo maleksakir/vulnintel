@@ -1,4 +1,4 @@
-import type { NormalizedCveRecord } from '@threat-lens/contracts';
+import type { NormalizedCveRecord, OsvPatch } from '@threat-lens/contracts';
 
 /** sha-256 of description + sorted-CWEs + sorted-top-5-vendors. Changes when core content changes. */
 export async function computeTextHash(record: NormalizedCveRecord): Promise<string> {
@@ -24,6 +24,26 @@ export async function computeStateHash(
     epssScore != null ? epssScore.toFixed(4) : 'null',
     topVendor ?? 'null',
   ].join('|');
+  return sha256hex(raw);
+}
+
+/** sha-256 over {cveIds, withdrawn, affected sorted by ecosystem+name}.
+ *  Deliberately excludes `modified`/description/references — OSV re-exports
+ *  full snapshots, not deltas, so a record whose `modified` timestamp
+ *  changed but whose actual CVE links/affected-package data didn't must not
+ *  trigger a write (same skip-if-unchanged philosophy as computeTextHash/
+ *  computeStateHash above). */
+export async function computeOsvContentHash(
+  patch: Pick<OsvPatch, 'cveIds' | 'withdrawn' | 'affected'>,
+): Promise<string> {
+  const sortedAffected = patch.affected
+    .slice()
+    .sort((a, b) => `${a.ecosystem}|${a.name}`.localeCompare(`${b.ecosystem}|${b.name}`));
+  const raw = JSON.stringify({
+    cveIds: patch.cveIds.slice().sort(),
+    withdrawn: patch.withdrawn,
+    affected: sortedAffected,
+  });
   return sha256hex(raw);
 }
 

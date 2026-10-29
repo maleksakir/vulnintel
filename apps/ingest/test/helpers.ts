@@ -162,6 +162,38 @@ export async function seedCveRow(opts: {
     .run();
 }
 
+/** Inserts/replaces an `osv_record_state` row directly (bypassing applyOsvPatchBatch),
+ *  for discovery-path tests that need to seed prior state without going through
+ *  the fetch-batch write path. */
+export async function seedOsvState(opts: {
+  osvId: string;
+  ecosystemDir?: string;
+  modifiedAt: string;
+  status?: 'LINKED' | 'NO_CVE_ALIAS' | 'CVE_NOT_INGESTED' | 'WITHDRAWN';
+  cveIds?: string;
+  contentHash?: string | null;
+  firstSeenAt?: number;
+  checkedAt?: number;
+}): Promise<void> {
+  const now = Date.now();
+  await testEnv.DB.prepare(
+    `INSERT INTO osv_record_state
+       (osv_id, ecosystem_dir, modified_at, content_hash, status, cve_ids, first_seen_at, checked_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      opts.osvId,
+      opts.ecosystemDir ?? 'npm',
+      opts.modifiedAt,
+      opts.contentHash ?? null,
+      opts.status ?? 'CVE_NOT_INGESTED',
+      opts.cveIds ?? '',
+      opts.firstSeenAt ?? now,
+      opts.checkedAt ?? now,
+    )
+    .run();
+}
+
 /** Inserts/replaces a `cve_state` row directly (bypassing applyKevPatch/applyEpssPatchBatch). */
 export async function seedCveState(opts: {
   cveId: string;

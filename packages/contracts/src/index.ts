@@ -43,6 +43,12 @@ export type {
   KevPatch,
   NormalizedCpe,
   NormalizedCveRecord,
+  OsvAffectedPackage,
+  OsvFetchItem,
+  OsvPatch,
+  OsvQueueMessage,
+  OsvRange,
+  OsvRangeEvent,
   RetryMessage,
   Severity,
 } from './cve.js';

@@ -135,6 +135,17 @@ real CVE data lands correctly in D1, Vectorize, KV, and Analytics.
    - `epss.ts` (FIRST EPSS)
    Each is a pure function with unit tests against a fixture of real
    payloads (committed to `apps/ingest/test/fixtures/`).
+
+   > **Drift flag (2026-10-29, `docs-writer`):** `apps/ingest/src/adapters/osv.ts`
+   > (OSV.dev GHSA ingestion) now exists in code and isn't listed above. Per
+   > this file's own rule ("drift between spec and code is a bug," line ~409)
+   > this is real drift — but it's reported here, not resolved, per
+   > `docs-writer`'s charter: whether this original Phase-3 adapter list
+   > should be extended for every source added after initial launch (OSV is
+   > tracked separately as Phase 2 of `docs/EXECUTION_PLAN.md` — a different
+   > phase-numbering scheme than this file's own Phases 0–8) is a `planner`
+   > decision, not a docs-only fix. Not flagging this as spec-is-stale vs.
+   > code-is-wrong either way; just noting the two now disagree.
 3. `processRecord(record, env, ctx)` covering the persistence sequence
    (Section 5.1.4), including the two-hash decision tree and quarantine
    path.

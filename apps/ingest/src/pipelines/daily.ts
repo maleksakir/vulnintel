@@ -27,6 +27,19 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   const endDate = new Date(startedAt);
   const startDate = new Date(startedAt - DELTA_WINDOW_MS);
 
+  // OSV (GHSA) discovery piggybacks on this cron slot — all 5 Workers Free
+  // cron triggers are already used (see wrangler.toml), so OSV can't get its
+  // own. This is just the kick-off: the real discovery work (GCS CSV scans +
+  // D1 reads) happens in pipelines/osv.ts's runOsvDiscovery, run as its own
+  // `osv-ingest` queue-consumer invocation with a fresh 50-D1-query budget —
+  // same producer/consumer split as EPSS below. Best-effort: OSV is
+  // additive and must never block NVD/MITRE/EPSS.
+  try {
+    await env.OSV_QUEUE.send({ kind: 'OSV_DISCOVER' });
+  } catch {
+    /* best-effort enqueue — see comment above */
+  }
+
   await Promise.all([
     markIngestStarted(env, 'NVD'),
     markIngestStarted(env, 'MITRE'),

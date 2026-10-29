@@ -69,6 +69,28 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   is chunked at the 100-param cap regardless of caller
   (`apps/ingest/src/lib/server/processRecord.ts`). See
   `docs/EXECUTION_PLAN.md`'s Phase 0 table for status — not yet deployed.
+- **Cloudflare Queues' 10,000-operations/day allowance (Workers Free plan) is
+  one pool shared account-wide, not per-queue** — a write, a read, and a
+  delete each count as a separate operation (so one message ≈ 3 operations,
+  ~3,333 messages/day in practice). `apps/ingest` now has 3 queues drawing
+  from that same pool: `cve-ingest-retry` (per-record retry), `epss-ingest`
+  (added 2026-10-27), and `osv-ingest` (added 2026-10-29, see
+  `docs/EXECUTION_PLAN.md`'s Phase 2 row — not yet deployed). None of them
+  individually tracks the others' usage, so a burst on one (e.g. a large
+  retry storm) can starve the others' headroom for the rest of the day; no
+  incident yet, but design future Queue-based ingest paths with this shared
+  ceiling in mind, the same way D1/KV's per-resource caps are already treated
+  above.
+- OSV.dev ingestion (`apps/ingest/src/adapters/osv.ts`, not yet deployed)
+  adds two new outbound hosts beyond NVD/MITRE/CISA/FIRST.org:
+  `storage.googleapis.com` (GCS per-ecosystem `modified_id.csv` export, used
+  for delta discovery) and `api.osv.dev` (per-record REST fetch). Note for
+  `docs-writer`/`security-reviewer`: `docs/network/whitelist-ledger.md` is
+  the IP *inbound* allowlist (`corp_authorized_sources`, WAF-side) and is
+  unrelated to ingest adapters' outbound fetch targets — there is currently
+  no separate outbound-allowlist doc despite `docs-writer`'s charter
+  describing one; the adapter table in `apps/ingest/README.md` is where
+  outbound sources are actually tracked.
 - Cloudflare free tier in general: KV reads 100k/day, writes+deletes+lists
   1k/day combined; D1 reads 5M/day, writes 100k/day, 500MB per database;
   Cron Triggers 5 per account (already fully used by `apps/ingest`). Design

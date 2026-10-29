@@ -13,6 +13,7 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 | Cache | Cloudflare KV — write-only: invalidates `CACHE` keys after record updates |
 | Retry | Cloudflare Queues (`cve-ingest-retry` → DLQ `cve-ingest-dlq`) |
 | EPSS ingest | Cloudflare Queues (`epss-ingest` → DLQ `epss-ingest-dlq`) — decouples EPSS's D1 writes from the daily cron invocation (see below) |
+| OSV ingest | Cloudflare Queues (`osv-ingest` → DLQ `osv-ingest-dlq`) — carries both the daily discovery kick-off and per-record fetch work, since OSV has no cron slot of its own (see below) |
 | Telemetry | Analytics Engine — one event per record, one event per pipeline run |
 | Types | `@threat-lens/contracts` workspace package |
 
@@ -34,6 +35,7 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 | `mitre.ts` | MITRE CVE Services API | 500 records/page · CVE JSON 5.0 format |
 | `kev.ts` | CISA KEV JSON feed | Full snapshot on every run |
 | `epss.ts` | EPSS CSV (gzip) | `DecompressionStream('gzip')` · yields per-CVE patches |
+| `osv.ts` | OSV.dev (GHSA, CVE-linked only) | GCS `modified_id.csv` per-ecosystem export (`storage.googleapis.com`) for delta discovery · per-record REST fetch (`api.osv.dev/v1/vulns/{id}`) · 8 ecosystem dirs · 1MB/record cap · **not yet deployed, see `docs/EXECUTION_PLAN.md`** |
 
 ## Persistence Engine (`src/lib/server/processRecord.ts`)
 
@@ -73,6 +75,7 @@ processRecord(record)
 |------|----------|---------------|
 | `daily.ts` | `runDailyFullDelta` | Runs NVD → MITRE inline (`processRecord` per record). EPSS is fetch-chunk-enqueue only — no D1 writes in this invocation, see `epssQueue.ts` below. Writes `ingest_run` rows for all three sources (EPSS's reflects enqueue outcome, not D1-write outcome) |
 | `epssQueue.ts` | `runEpssConsumer` | Queue consumer for `epss-ingest`/`epss-ingest-staging`. One invocation per queued message (~1,000 EPSS patches); applies them to D1 via `applyEpssPatchBatch`'s two-hash-style change detection. Split out from `daily.ts` because FIRST.org's feed is a 250k+-row full daily snapshot — doing the change-detection reads + writes inline would exceed D1's 100-bound-param-per-query and 50-query-per-invocation Free-plan caps; each queue invocation gets its own fresh budget instead |
+| `osv.ts` | `runOsvDiscovery` / `runOsvFetchBatch` | Queue consumer for `osv-ingest`/`osv-ingest-staging`, two message kinds. `OSV_DISCOVER` (kicked off daily from `daily.ts`, since OSV has no cron slot of its own) streams all 8 ecosystem dirs' `modified_id.csv`, skip-if-unchanged filters, runs a bounded re-link pass, and chunks the result into `OSV_FETCH` messages (20 items each). `OSV_FETCH` fetches+normalizes each item (bounded concurrency) and writes via `applyOsvPatchBatch`. **Not yet deployed** — see `docs/EXECUTION_PLAN.md`'s Phase 2 row for status, including an open security finding that blocks deploy |
 | `kev.ts` | `runKevFastLane` | Applies all KEV patches; invalidates `threat:kev:list` KV key |
 | `reconcile.ts` | `runWeeklyReconciliation` | 30-day NVD window; two-hash means unchanged records are cheap no-ops |
 | `aging.ts` | `runAgingSweep` | Hard-deletes CVEs older than 24 months (KEV-exempt); rebuilds `cpe_search` FTS; writes `cve_metrics_daily` |
@@ -96,12 +99,22 @@ epss-ingest (+ -staging) → runEpssConsumer (src/pipelines/epssQueue.ts)
      batched writes (500/sub-batch) against cve_state, skip-if-unchanged
                                                     ↓ on 3rd failure
                                             epss-ingest-dlq
+
+osv-ingest (+ -staging) → src/pipelines/osv.ts, dispatched by message kind
+  │
+  ├─ OSV_DISCOVER → runOsvDiscovery (cursor + 8-dir GCS scan + re-link pass
+  │                 → chunks and sends OSV_FETCH messages)
+  └─ OSV_FETCH    → runOsvFetchBatch → applyOsvPatchBatch (one db.batch()
+                     call against osv_record_state/cve_osv_affected)
+                                                    ↓ on 3rd failure
+                                            osv-ingest-dlq
 ```
 
-`max_batch_size = 1` on the `epss-ingest` consumer (`wrangler.toml`) means
-one queue message = one invocation, so each gets its own fresh 50-D1-query
-budget — the reason this queue exists rather than EPSS going through
-`cve-ingest-retry`.
+`max_batch_size = 1` on the `epss-ingest` and `osv-ingest` consumers
+(`wrangler.toml`) means one queue message = one invocation, so each gets its
+own fresh 50-D1-query budget — the reason these queues exist rather than
+EPSS/OSV going through `cve-ingest-retry`. **Not yet deployed** — see
+`docs/EXECUTION_PLAN.md`'s Phase 2 row for status.
 
 ## Backfill (`src/scripts/backfill.ts`)
 
@@ -156,6 +169,7 @@ The ingest worker deletes these keys after record updates so the app worker neve
 | `ANALYTICS` | Analytics Engine | Pipeline telemetry |
 | `RETRY_QUEUE` | Queue producer | Failed record retry |
 | `EPSS_QUEUE` | Queue producer | EPSS patch chunks, produced by `daily.ts`, consumed by `epssQueue.ts` |
+| `OSV_QUEUE` | Queue producer | OSV discover/fetch messages, produced by `daily.ts` (kick-off) and `pipelines/osv.ts` itself (fetch chunks), consumed by `pipelines/osv.ts`. **Not yet deployed** |
 
 ## Secrets
 
