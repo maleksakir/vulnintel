@@ -4,6 +4,7 @@ import { CVE_ID_SHAPE } from '../adapters/mitre';
 import { fetchNvdDelta } from '../adapters/nvd';
 import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import type { Env } from '../types';
+import { NVD_QUEUE_MAX_BYTES, NVD_QUEUE_MAX_RECORDS } from './nvdProducer';
 
 const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety overlap
 // EPSS_QUEUE message chunk size. Cloudflare Queues caps a message at 128KB
@@ -15,35 +16,17 @@ const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety over
 // so don't raise this without re-measuring actual serialized size.)
 const EPSS_MESSAGE_CHUNK_SIZE = 1000;
 
-// NVD_QUEUE batch sizing. Unlike EPSS's flat, small EpssPatch shape, a
-// NormalizedCveRecord's size varies enormously: processRecord.ts's writeD1
-// caps a single record at 500 CPEs / 200 references, and a record actually
-// built at that cap measures ~200KB on its own — already over Cloudflare
-// Queues' 128KB (131,072-byte) per-message cap BY ITSELF, before any
-// batching. A fixed record-count-only chunk size (EPSS's approach) can't
-// safely bound this, so batching here tracks actual serialized bytes per
-// batch, not just a count.
+// NVD_QUEUE batch sizing (NVD_QUEUE_MAX_RECORDS / NVD_QUEUE_MAX_BYTES) is
+// shared with pipelines/reconcile.ts via pipelines/nvdProducer.ts — both feed
+// the SAME nvd-ingest queue + consumer, so their bounds must match the
+// consumer's per-invocation budget and must not drift. See nvdProducer.ts for
+// the full rationale (per-record size variance, the ~5-D1-query-per-record
+// consumer cost, and why bytes AND a record count are both needed). This file
+// keeps its own enqueue LOOP (rather than calling enqueueNvdRecords) only
+// because it must also collect zero-CWE CVE IDs for the MITRE gap-fill inline
+// in the same pass — a side effect the shared helper deliberately does not
+// carry.
 //
-// NVD_QUEUE_MAX_RECORDS caps the OTHER constraint: each CHANGED record's
-// processRecord() call costs up to ~5 D1 queries in the consumer (1 SELECT
-// + up to 4 more db.batch() calls in writeD1 — main row+state+provenance,
-// CWEs, CPEs, references — each db.batch() call counts as ONE query
-// regardless of statement count, per the D1-query-budget comment on
-// WRITE_SUB_BATCH_SIZE in processRecord.ts). A worst-case ALL-CHANGED batch
-// of 8 records costs at most 8 × 5 = 40 D1 queries — comfortably under the
-// 50-per-invocation Free-tier cap with headroom to spare, unlike EPSS's
-// equivalent (~1,000 patches/message) which can use a much larger count
-// because applyEpssPatchBatch's D1 cost is O(1 batch per ~500 patches), not
-// O(5) per record.
-//
-// NVD_QUEUE_MAX_BYTES leaves a ~24% margin under the 131,072-byte cap for
-// the enclosing `{"records":[...]}` wrapper and any single large record
-// already queued in the batch (measured: 10 typical-shaped records — 4
-// CPEs/5 references each — serialize to ~25KB, so in the common case
-// NVD_QUEUE_MAX_RECORDS is the binding constraint and NVD_QUEUE_MAX_BYTES
-// only matters for unusually CPE/reference-heavy CVEs).
-const NVD_QUEUE_MAX_RECORDS = 8;
-const NVD_QUEUE_MAX_BYTES = 100_000;
 // `{"records":[...]}`'s own wrapper + per-element comma overhead; a small
 // fixed allowance rather than exact structural accounting.
 const NVD_MESSAGE_WRAPPER_OVERHEAD_BYTES = 16;

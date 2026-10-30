@@ -1,5 +1,6 @@
 import type {
   EpssQueueMessage,
+  KevQueueMessage,
   MitreCweQueueMessage,
   NvdQueueMessage,
   OsvQueueMessage,
@@ -24,6 +25,11 @@ export interface Env {
   // instead of writing them to D1 inline; pipelines/epssQueue.ts's consumer
   // does the actual D1 work, one message per invocation (see wrangler.toml).
   EPSS_QUEUE: Queue<EpssQueueMessage>;
+  // KEV queue producer — kev.ts (the 6-hourly cron) enqueues fetched/chunked
+  // CISA KEV catalog patches here instead of applying them to D1 inline;
+  // pipelines/kevQueue.ts's consumer does the actual batched D1 work
+  // (applyKevPatchBatch), one message per invocation (see wrangler.toml).
+  KEV_QUEUE: Queue<KevQueueMessage>;
   // NVD queue producer — daily.ts's NVD section enqueues fetched,
   // size-aware-batched NormalizedCveRecords here instead of calling
   // processRecord() inline; pipelines/nvdQueue.ts's consumer does the

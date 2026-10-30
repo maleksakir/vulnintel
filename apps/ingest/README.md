@@ -13,7 +13,8 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 | Cache | Cloudflare KV — write-only: invalidates `CACHE` keys after record updates |
 | Retry | Cloudflare Queues (`cve-ingest-retry` → DLQ `cve-ingest-dlq`) |
 | EPSS ingest | Cloudflare Queues (`epss-ingest` → DLQ `epss-ingest-dlq`) — decouples EPSS's D1 writes from the daily cron invocation (see below) |
-| NVD ingest | Cloudflare Queues (`nvd-ingest` → DLQ `nvd-ingest-dlq`) — decouples NVD's per-record `processRecord()` D1/Vectorize/AI writes from the daily cron invocation, same reasoning as EPSS ingest (see below). **Not yet deployed** |
+| NVD ingest | Cloudflare Queues (`nvd-ingest` → DLQ `nvd-ingest-dlq`) — decouples NVD's per-record `processRecord()` D1/Vectorize/AI writes from the daily cron invocation, same reasoning as EPSS ingest (see below). Also reused by the weekly reconciliation producer (`reconcile.ts`), which feeds the same queue + consumer. **Not yet deployed** |
+| KEV ingest | Cloudflare Queues (`kev-ingest` → DLQ `kev-ingest-dlq`) — decouples the 6-hourly KEV catalog's per-entry D1 change-detect + write work from the cron invocation; `kev.ts` is now a pure producer, `kevQueue.ts`'s consumer does the batched D1 work (`applyKevPatchBatch`). Replaces the old inline per-entry `applyKevPatch` loop that blew the 50-D1-query-per-invocation Free-plan cap on a 1,000+-entry catalog. **Not yet deployed** |
 | MITRE ingest | Cloudflare Queues (`mitre-ingest` → DLQ `mitre-ingest-dlq`) — narrow CWE-only gap-fill lookup against NVD records with zero CWEs; replaces the old, broken full-MITRE-delta re-ingest (see below). **Not yet deployed** |
 | OSV ingest | Cloudflare Queues (`osv-ingest` → DLQ `osv-ingest-dlq`) — carries both the daily discovery kick-off and per-record fetch work, since OSV has no cron slot of its own (see below). Deployed and live |
 | Telemetry | Analytics Engine — one event per record, one event per pipeline run |
@@ -23,9 +24,9 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 
 | Expression | Pipeline | Description |
 |------------|----------|-------------|
-| `0 1 * * *` | `runDailyFullDelta` | NVD + MITRE + EPSS delta (48h lookback) |
-| `0 */6 * * *` | `runKevFastLane` | CISA KEV full snapshot (runs every 6 hours) |
-| `0 3 * * 0` | `runWeeklyReconciliation` | 30-day NVD re-sync to catch late edits |
+| `0 1 * * *` | `runDailyFullDelta` | NVD + MITRE + EPSS delta (48h lookback) — pure producer |
+| `0 */6 * * *` | `runKevFastLane` | CISA KEV full snapshot (runs every 6 hours) — pure producer onto `kev-ingest` |
+| `0 3 * * 0` | `runWeeklyReconciliation` | 30-day NVD re-sync to catch late edits — pure producer onto the existing `nvd-ingest` queue |
 | `30 2 * * *` | `runAgingSweep` | 24-month hard-delete + metrics rollup |
 | `0 4 * * *` | `runIpListPrune` | Expire temporary IP allowlist entries |
 
@@ -80,8 +81,10 @@ processRecord(record)
 | `epssQueue.ts` | `runEpssConsumer` | Queue consumer for `epss-ingest`/`epss-ingest-staging`. One invocation per queued message (~1,000 EPSS patches); applies them to D1 via `applyEpssPatchBatch`'s two-hash-style change detection. Split out from `daily.ts` because FIRST.org's feed is a 250k+-row full daily snapshot — doing the change-detection reads + writes inline would exceed D1's 100-bound-param-per-query and 50-query-per-invocation Free-plan caps; each queue invocation gets its own fresh budget instead |
 | `mitreQueue.ts` | `runMitreCweConsumer` | Queue consumer for `mitre-ingest`/`mitre-ingest-staging`. One invocation per queued message (≤20 CVE IDs); re-verifies each still has zero CWEs (a fresh D1 read, since time may have passed since `daily.ts` collected them), fetches MITRE's single-record endpoint per ID (bounded concurrency), and writes only `cwe`/`cve_cwe`/`cve_source_provenance` — never `cve`/`cpe`/`cve_reference`/hashes/Vectorize/AI/KV. **Not yet deployed** |
 | `osv.ts` | `runOsvDiscovery` / `runOsvFetchBatch` | Queue consumer for `osv-ingest`/`osv-ingest-staging`, two message kinds. `OSV_DISCOVER` (kicked off daily from `daily.ts`, since OSV has no cron slot of its own) streams all 8 ecosystem dirs' `modified_id.csv`, skip-if-unchanged filters, runs a bounded re-link pass, and chunks the result into `OSV_FETCH` messages (20 items each). `OSV_FETCH` fetches+normalizes each item (bounded concurrency) and writes via `applyOsvPatchBatch`. Deployed and migration applied 2026-10-30 — see `docs/EXECUTION_PLAN.md`'s Phase 2 row |
-| `kev.ts` | `runKevFastLane` | Applies all KEV patches; invalidates `threat:kev:list` KV key |
-| `reconcile.ts` | `runWeeklyReconciliation` | 30-day NVD window; two-hash means unchanged records are cheap no-ops |
+| `kev.ts` | `runKevFastLane` | Pure producer — fetches the full CISA KEV catalog (zero D1 work, just an HTTP fetch), chunks it (`KEV_MESSAGE_CHUNK_SIZE`=500), and enqueues onto `kev-ingest`. Writes a `KEV` `ingest_run` row reflecting the ENQUEUE outcome. No longer invalidates `threat:kev:list` unconditionally — the consumer does that only when an entry actually changes. **Not yet deployed** |
+| `kevQueue.ts` | `runKevConsumer` | Queue consumer for `kev-ingest`/`kev-ingest-staging`. One message (~500 patches) per invocation; applies them via `applyKevPatchBatch`'s batched change-detect + write (bounded D1-query count that does NOT grow with the number of changed entries). Split out from `kev.ts` for the same reason as `epssQueue.ts`. **Not yet deployed** |
+| `nvdProducer.ts` | `enqueueNvdRecords` | Shared NVD producer helper — drains an async iterable of `NormalizedCveRecord`s, size-aware-batches (`NVD_QUEUE_MAX_RECORDS`/`NVD_QUEUE_MAX_BYTES`), and enqueues onto `nvd-ingest`. Used by `reconcile.ts`; `daily.ts` imports its sizing constants (and keeps its own loop because it also collects zero-CWE IDs for MITRE inline). Single source of truth for the NVD batch bounds both producers must agree on |
+| `reconcile.ts` | `runWeeklyReconciliation` | Pure producer — fetches the 30-day NVD window and enqueues onto the EXISTING `nvd-ingest` queue via `enqueueNvdRecords` (no own queue). Replaces the old inline per-record `processRecord()` loop that hit the same 50-D1-query cap as the daily NVD delta, but over a 30-day window. The shared consumer's two-hash gate makes unchanged records cheap no-ops |
 | `aging.ts` | `runAgingSweep` | Hard-deletes CVEs older than 24 months (KEV-exempt); rebuilds `cpe_search` FTS; writes `cve_metrics_daily` |
 | `iplist.ts` | `runIpListPrune` | Reads Cloudflare IP List via API; deletes items with `expires:<timestamp>` in past |
 
@@ -104,8 +107,16 @@ epss-ingest (+ -staging) → runEpssConsumer (src/pipelines/epssQueue.ts)
                                                     ↓ on 3rd failure
                                             epss-ingest-dlq
 
-nvd-ingest (+ -staging) → runNvdConsumer (src/pipelines/nvdQueue.ts)
+kev-ingest (+ -staging) → runKevConsumer (src/pipelines/kevQueue.ts)
   │
+  └─ applyKevPatchBatch — chunked change-detect SELECT (100 bound params/query)
+     + batched cve_state upserts + batched cve.state_hash recompute + a single
+     multi-id Vectorize metadata upsert, skip-if-unchanged
+                                                    ↓ on 3rd failure
+                                            kev-ingest-dlq
+
+nvd-ingest (+ -staging) → runNvdConsumer (src/pipelines/nvdQueue.ts)
+  │                        (fed by BOTH daily.ts and reconcile.ts)
   └─ processRecord() per record (≤8/message, byte-capped) — full two-hash
      D1 + Vectorize + AI path, same as cve-ingest-retry's UPSERT_ALL
                                                     ↓ on 3rd failure
@@ -129,15 +140,15 @@ osv-ingest (+ -staging) → src/pipelines/osv.ts, dispatched by message kind
                                             osv-ingest-dlq
 ```
 
-`max_batch_size = 1` on the `epss-ingest`, `nvd-ingest`, `mitre-ingest`, and
-`osv-ingest` consumers (`wrangler.toml`) means one queue message = one
-invocation, so each gets its own fresh 50-D1-query budget — the reason
-these queues exist rather than going through `cve-ingest-retry`.
-`epss-ingest` and `osv-ingest` are deployed and live. `nvd-ingest` and
-`mitre-ingest` are code-complete, tested, and security-reviewed but **not
-yet deployed** (queues declared in `wrangler.toml` but not yet provisioned
-via `wrangler queues create`, and the code not yet `wrangler deploy`d) —
-see `docs/EXECUTION_PLAN.md`'s Phase 0 rows for status.
+`max_batch_size = 1` on the `epss-ingest`, `kev-ingest`, `nvd-ingest`,
+`mitre-ingest`, and `osv-ingest` consumers (`wrangler.toml`) means one queue
+message = one invocation, so each gets its own fresh 50-D1-query budget — the
+reason these queues exist rather than going through `cve-ingest-retry`.
+`epss-ingest` and `osv-ingest` are deployed and live. `kev-ingest`,
+`nvd-ingest`, and `mitre-ingest` are code-complete and tested but **not yet
+deployed** (queues declared in `wrangler.toml` but not yet provisioned via
+`wrangler queues create`, and the code not yet `wrangler deploy`d) — see
+`docs/EXECUTION_PLAN.md`'s Phase 0 rows for status.
 
 ## Backfill (`src/scripts/backfill.ts`)
 
@@ -178,7 +189,7 @@ The ingest worker deletes these keys after record updates so the app worker neve
 | Trigger | Key(s) invalidated |
 |---------|--------------------|
 | CVE updated | `cve:<cve_id>` |
-| KEV patch applied | `threat:kev:list` |
+| KEV entry actually changed (in `applyKevPatchBatch`) | `cve:<cve_id>` + `threat:kev:list` — only on a real change, no longer unconditionally every 6-hourly run |
 | Aging sweep complete | `dash:kpi:*` |
 
 ## Bindings (wrangler.toml)
@@ -192,6 +203,7 @@ The ingest worker deletes these keys after record updates so the app worker neve
 | `ANALYTICS` | Analytics Engine | Pipeline telemetry |
 | `RETRY_QUEUE` | Queue producer | Failed record retry |
 | `EPSS_QUEUE` | Queue producer | EPSS patch chunks, produced by `daily.ts`, consumed by `epssQueue.ts` |
+| `KEV_QUEUE` | Queue producer | CISA KEV catalog patch chunks (≤500), produced by `kev.ts`, consumed by `kevQueue.ts`. Code-complete, **not yet deployed** |
 | `NVD_QUEUE` | Queue producer | NVD `NormalizedCveRecord` batches (≤8, byte-capped), produced by `daily.ts`, consumed by `nvdQueue.ts`. Code-complete, **not yet deployed** |
 | `MITRE_QUEUE` | Queue producer | Zero-CWE CVE ID chunks (≤20), produced by `daily.ts`'s NVD section, consumed by `mitreQueue.ts`. Code-complete, **not yet deployed** |
 | `OSV_QUEUE` | Queue producer | OSV discover/fetch messages, produced by `daily.ts` (kick-off) and `pipelines/osv.ts` itself (fetch chunks), consumed by `pipelines/osv.ts`. Deployed and live (2026-10-30) |

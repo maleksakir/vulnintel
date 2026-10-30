@@ -97,6 +97,30 @@ export interface EpssQueueMessage {
   patches: EpssPatch[];
 }
 
+/** kev-ingest queue message shape — one chunk of the full CISA KEV catalog
+ *  snapshot, produced by `pipelines/kev.ts` and consumed by
+ *  `pipelines/kevQueue.ts`.
+ *
+ *  Same reasoning as EpssQueueMessage: CISA ships a full catalog snapshot
+ *  (1,000+ entries) on every 6-hourly run, not a delta. Applying each entry
+ *  inline inside the single cron invocation — a change-detect read + (for a
+ *  changed entry) a state write + a state_hash recompute read + an UPDATE —
+ *  could exceed the Free plan's 50-D1-query-per-invocation cap once more
+ *  than ~12 entries change in a run. `pipelines/kev.ts` now only
+ *  fetches+chunks+enqueues onto this queue; `pipelines/kevQueue.ts`'s
+ *  consumer does the batched D1 work (`applyKevPatchBatch`), one message per
+ *  invocation with its own fresh budget.
+ *
+ *  KevPatch's flat shape (one short cveId + two numbers + one short action
+ *  string) is close to EpssPatch's in serialized size, so a chunk size of
+ *  ~1,000 stays well under Cloudflare Queues' 128KB per-message cap — but
+ *  kevRequiredAction is a free-text field with no hard length bound, so the
+ *  producer sizes chunks smaller and defensively (see KEV_MESSAGE_CHUNK_SIZE
+ *  in pipelines/kev.ts). */
+export interface KevQueueMessage {
+  patches: KevPatch[];
+}
+
 /** mitre-ingest queue message shape — one bounded chunk of CVE IDs that an
  *  NVD record was seen with zero CWEs (`record.cwes.length === 0`),
  *  collected by `pipelines/daily.ts`'s NVD producer loop and consumed by

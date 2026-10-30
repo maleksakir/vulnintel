@@ -1,5 +1,6 @@
 import type {
   EpssQueueMessage,
+  KevQueueMessage,
   MitreCweQueueMessage,
   NvdQueueMessage,
   RetryMessage,
@@ -10,6 +11,7 @@ import { runDailyFullDelta } from './pipelines/daily';
 import { runEpssConsumer } from './pipelines/epssQueue';
 import { runIpListPrune } from './pipelines/iplist';
 import { runKevFastLane } from './pipelines/kev';
+import { runKevConsumer } from './pipelines/kevQueue';
 import { runMitreCweConsumer } from './pipelines/mitreQueue';
 import { runNvdConsumer } from './pipelines/nvdQueue';
 import { isValidOsvQueueMessage, runOsvDiscovery, runOsvFetchBatch } from './pipelines/osv';
@@ -63,11 +65,19 @@ export default {
    *   got its own traffic (see wrangler.toml's staging section).
    *   max_retries=3 → exhausted messages land in epss-ingest-dlq.
    *
+   * `kev-ingest` (+ `kev-ingest-staging`): one message = one chunk of CISA's
+   *   full KEV catalog snapshot, produced by pipelines/kev.ts (the 6-hourly
+   *   cron). A malformed body is acked (dropped), not retried — same
+   *   reasoning as the epss-ingest malformed-message branch below.
+   *   max_retries=3 → exhausted messages land in kev-ingest-dlq.
+   *
    * `nvd-ingest` (+ `nvd-ingest-staging`): one message = one small bounded
-   *   batch of NormalizedCveRecords from a day's NVD delta, produced by
-   *   pipelines/daily.ts. A malformed body is acked (dropped), not retried —
-   *   same reasoning as the epss-ingest malformed-message branch below.
-   *   max_retries=3 → exhausted messages land in nvd-ingest-dlq.
+   *   batch of NormalizedCveRecords from a day's NVD delta (produced by
+   *   pipelines/daily.ts) OR from the weekly 30-day reconciliation window
+   *   (produced by pipelines/reconcile.ts — same queue, same consumer). A
+   *   malformed body is acked (dropped), not retried — same reasoning as the
+   *   epss-ingest malformed-message branch below. max_retries=3 → exhausted
+   *   messages land in nvd-ingest-dlq.
    *
    * `mitre-ingest` (+ `mitre-ingest-staging`): one message = one bounded
    *   chunk (≤20) of CVE IDs that an NVD record was seen with zero CWEs,
@@ -95,6 +105,18 @@ export default {
       for (const msg of batch.messages) {
         try {
           await runEpssConsumer(msg.body as EpssQueueMessage, env, ctx);
+          msg.ack();
+        } catch {
+          msg.retry();
+        }
+      }
+      return;
+    }
+
+    if (batch.queue.startsWith('kev-ingest')) {
+      for (const msg of batch.messages) {
+        try {
+          await runKevConsumer(msg.body as KevQueueMessage, env, ctx);
           msg.ack();
         } catch {
           msg.retry();

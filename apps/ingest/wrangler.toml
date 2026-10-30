@@ -93,6 +93,30 @@ max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "epss-ingest-dlq"
 
+# KEV queue. CISA ships a full KEV catalog snapshot (1,000+ entries) on every
+# 6-hourly run, not a delta. The old inline applyKevPatch-per-entry loop in
+# pipelines/kev.ts issued a change-detect SELECT per entry inside the single
+# cron invocation, so even a zero-change run spent ~1,000 D1 queries and got
+# killed mid-run after ~50 (the Free plan's per-invocation D1-query cap) —
+# the same silent-failure class EPSS/NVD independently hit, and a
+# safety-relevant one since KEV tracks actively-exploited CVEs (see
+# docs/EXECUTION_PLAN.md's KEV row). pipelines/kev.ts now only
+# fetches+chunks+enqueues onto this queue; pipelines/kevQueue.ts's consumer
+# does the actual batched D1 work (applyKevPatchBatch — bounded, measurable
+# query count that does NOT grow with the number of changed entries), one
+# message (~KEV_MESSAGE_CHUNK_SIZE = 500 patches) per invocation.
+# max_batch_size = 1 keeps that one-message-per-invocation guarantee exact.
+[[queues.producers]]
+queue = "kev-ingest"
+binding = "KEV_QUEUE"
+
+[[queues.consumers]]
+queue = "kev-ingest"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "kev-ingest-dlq"
+
 # NVD queue. NVD's 48h delta is variable (hundreds to low-thousands of
 # modified records per window, not a fixed daily snapshot like EPSS's
 # 250k-row CSV) and each CHANGED record's processRecord() call costs up to
@@ -227,6 +251,19 @@ max_batch_size = 1
 max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "epss-ingest-dlq-staging"
+
+# Isolated from production's kev-ingest queue for the same reason as
+# epss-ingest-staging above.
+[[env.staging.queues.producers]]
+queue = "kev-ingest-staging"
+binding = "KEV_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "kev-ingest-staging"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "kev-ingest-dlq-staging"
 
 # Isolated from production's nvd-ingest queue for the same reason as
 # epss-ingest-staging above.

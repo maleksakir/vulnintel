@@ -1,6 +1,7 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import type {
   EpssQueueMessage,
+  KevQueueMessage,
   MitreCweQueueMessage,
   NvdQueueMessage,
   RetryMessage,
@@ -117,6 +118,83 @@ describe('index.ts queue() dispatch', () => {
     // rather than retried into the DLQ (see pipelines/epssQueue.ts).
     const msg = makeMessage({} as unknown as EpssQueueMessage);
     const batch = makeBatch('epss-ingest', [msg]);
+
+    await worker.queue(batch, testEnv, createExecutionContext());
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+  });
+
+  it('routes a "kev-ingest" batch to the KEV consumer path (runKevConsumer → applyKevPatchBatch), not the RetryMessage/NVD/EPSS path', async () => {
+    spyOnBindings(); // Vectorize has no local simulator — applyKevPatchBatch touches it on a changed entry
+    const cveId = 'CVE-2026-70040';
+    await seedCveRow({ cveId });
+
+    const kevBody: KevQueueMessage = {
+      patches: [
+        { cveId, kevDateAdded: 1_700_000_000_000, kevDueDate: null, kevRequiredAction: 'Patch' },
+      ],
+    };
+    const msg = makeMessage(kevBody);
+    const batch = makeBatch('kev-ingest', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+
+    // applyKevPatchBatch listed the CVE in cve_state.
+    const stateRow = await testEnv.DB.prepare(
+      'SELECT kev_listed, kev_required_action FROM cve_state WHERE cve_id = ?',
+    )
+      .bind(cveId)
+      .first<{ kev_listed: number; kev_required_action: string }>();
+    expect(stateRow).toEqual({ kev_listed: 1, kev_required_action: 'Patch' });
+
+    // If this had wrongly fallen through to the RetryMessage/processRecord
+    // path, body.normalizedRecord would be undefined and processRecord would
+    // throw before writing anything — the cve row's description (never touched
+    // by applyKevPatchBatch) stays at its seeded value.
+    const cveRow = await testEnv.DB.prepare('SELECT description FROM cve WHERE cve_id = ?')
+      .bind(cveId)
+      .first<{ description: string }>();
+    expect(cveRow?.description).toBe('seed description');
+  });
+
+  it('routes a "kev-ingest-staging" batch to the KEV consumer too (the -staging suffix variant)', async () => {
+    spyOnBindings();
+    const cveId = 'CVE-2026-70041';
+    await seedCveRow({ cveId });
+
+    const kevBody: KevQueueMessage = {
+      patches: [
+        { cveId, kevDateAdded: 1_700_000_000_000, kevDueDate: null, kevRequiredAction: 'Mitigate' },
+      ],
+    };
+    const msg = makeMessage(kevBody);
+    const batch = makeBatch('kev-ingest-staging', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+
+    const row = await testEnv.DB.prepare('SELECT kev_listed FROM cve_state WHERE cve_id = ?')
+      .bind(cveId)
+      .first<{ kev_listed: number }>();
+    expect(row?.kev_listed).toBe(1);
+  });
+
+  it('acks (does not retry) a kev-ingest message with a malformed body, without ever landing in the RetryMessage/processRecord path', async () => {
+    // Missing `patches` — runKevConsumer's own shape validation catches this
+    // before calling applyKevPatchBatch; a malformed message can never
+    // succeed no matter how many times it's retried, so it's dropped (acked).
+    const msg = makeMessage({} as unknown as KevQueueMessage);
+    const batch = makeBatch('kev-ingest', [msg]);
 
     await worker.queue(batch, testEnv, createExecutionContext());
 

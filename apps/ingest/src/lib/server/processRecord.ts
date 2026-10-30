@@ -347,6 +347,203 @@ export async function applyKevPatch(
   });
 }
 
+interface KevStateRow {
+  cve_id: string;
+  kev_listed: number;
+  kev_date_added: number | null;
+  kev_due_date: number | null;
+  kev_required_action: string | null;
+}
+
+interface KevHashRow {
+  cve_id: string;
+  severity: string;
+  cvss_base: number | null;
+  epss_score: number | null;
+  epss_percentile: number | null;
+  top_vendor: string | null;
+}
+
+/**
+ * Batched version of the KEV patch path. CISA ships a full KEV catalog
+ * snapshot (1,000+ entries) on every 6-hourly run, not a delta — the old
+ * `applyKevPatch`-per-entry loop (see `pipelines/kev.ts` pre-fix) issued a
+ * change-detect SELECT per entry inline inside a single cron invocation, so
+ * even a zero-change run spent ~1,000 D1 queries and blew the Free plan's
+ * 50-D1-query-per-invocation cap after the first ~50 entries — the same
+ * silent-mid-run-kill failure class as EPSS/NVD (see CLAUDE.md's D1-caps
+ * bullet).
+ *
+ * This replaces that with a small, bounded, measurable D1-query count that
+ * does not grow with the number of CHANGED entries:
+ *
+ *   • 1 batched read per 100-entry chunk (`WHERE cve_id IN (...)`) for the
+ *     change-detect (D1's 100-bound-param-per-query cap — same chunking as
+ *     applyEpssPatchBatch).
+ *   • for the entries that actually changed: 1 more batched read per
+ *     100-entry chunk to pull the severity/cvss/epss/top_vendor needed to
+ *     recompute state_hash; then two `db.batch()` writes (one for the
+ *     cve_state upserts, one for the cve.state_hash updates), each counting
+ *     as ONE query toward the budget regardless of statement count.
+ *   • Vectorize getByIds / upsert are each a single multi-id call for the
+ *     whole changed set, not one per entry.
+ *
+ * For a worst-case message of KEV_MESSAGE_CHUNK_SIZE (see pipelines/kev.ts)
+ * entries that ALL changed, the D1-query count is
+ * ~ceil(n/100) read + ceil(n/100) read + ceil(changed/500) batch +
+ * ceil(changed/500) batch — a few queries, not n of them. Callers
+ * (pipelines/kevQueue.ts) send one message per consumer invocation
+ * (`max_batch_size = 1` in wrangler.toml) so each gets its own fresh budget.
+ *
+ * Internally defensive regardless of `patches.length`, exactly like
+ * applyEpssPatchBatch: both reads chunk at SELECT_PARAM_CHUNK_SIZE and both
+ * writes sub-batch at WRITE_SUB_BATCH_SIZE, so a caller cannot accidentally
+ * build an over-cap query.
+ *
+ * Returns a `{ processed, changed }` count for the consumer's telemetry.
+ */
+export async function applyKevPatchBatch(
+  patches: KevPatch[],
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<{ processed: number; changed: number }> {
+  if (patches.length === 0) return { processed: 0, changed: 0 };
+
+  // De-dupe within the message on cveId (CISA's catalog is already unique
+  // per cveId, but a defensive guard keeps the IN-list param count honest
+  // and avoids writing the same row twice in one db.batch()).
+  const byCveId = new Map<string, KevPatch>();
+  for (const p of patches) byCveId.set(p.cveId, p);
+  const deduped = [...byCveId.values()];
+
+  // ── 1. Change-detect read (chunked at 100 bound params) ──────────────────
+  const current = new Map<string, KevStateRow>();
+  for (let i = 0; i < deduped.length; i += SELECT_PARAM_CHUNK_SIZE) {
+    const chunk = deduped.slice(i, i + SELECT_PARAM_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT cve_id, kev_listed, kev_date_added, kev_due_date, kev_required_action
+       FROM cve_state WHERE cve_id IN (${placeholders})`,
+    )
+      .bind(...chunk.map((p) => p.cveId))
+      .all<KevStateRow>();
+    for (const r of results) current.set(r.cve_id, r);
+  }
+
+  const changed = deduped.filter((p) => {
+    const cur = current.get(p.cveId);
+    // Same comparison as applyKevPatch's `unchanged` guard, inverted.
+    return !(
+      cur?.kev_listed === 1 &&
+      cur.kev_date_added === p.kevDateAdded &&
+      cur.kev_due_date === p.kevDueDate &&
+      cur.kev_required_action === p.kevRequiredAction
+    );
+  });
+
+  if (changed.length === 0) return { processed: deduped.length, changed: 0 };
+
+  // ── 2. cve_state upserts (batched) ───────────────────────────────────────
+  const now = Date.now();
+  for (let i = 0; i < changed.length; i += WRITE_SUB_BATCH_SIZE) {
+    const sub = changed.slice(i, i + WRITE_SUB_BATCH_SIZE);
+    await env.DB.batch(
+      sub.map((p) =>
+        env.DB.prepare(
+          `INSERT INTO cve_state
+             (cve_id, kev_listed, kev_date_added, kev_due_date, kev_required_action, state_updated_at)
+           VALUES (?, 1, ?, ?, ?, ?)
+           ON CONFLICT (cve_id) DO UPDATE SET
+             kev_listed          = 1,
+             kev_date_added      = excluded.kev_date_added,
+             kev_due_date        = excluded.kev_due_date,
+             kev_required_action = excluded.kev_required_action,
+             state_updated_at    = excluded.state_updated_at`,
+        ).bind(p.cveId, p.kevDateAdded, p.kevDueDate, p.kevRequiredAction, now),
+      ),
+    );
+  }
+
+  // ── 3. Recompute state_hash + propagate (batched read, then batched write)
+  // Only for changed entries that have a cve row (a KEV entry can reference a
+  // CVE this instance hasn't ingested yet — the cve_state upsert above still
+  // records the KEV listing via its FK to cve, but if there is no cve row the
+  // join below simply returns nothing for it and we skip the hash update,
+  // exactly as the single-patch applyKevPatch does with its `if (row)` guard).
+  const hashRows = new Map<string, KevHashRow>();
+  for (let i = 0; i < changed.length; i += SELECT_PARAM_CHUNK_SIZE) {
+    const chunk = changed.slice(i, i + SELECT_PARAM_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT c.cve_id, c.severity, c.cvss_base,
+              s.epss_score, s.epss_percentile,
+              (SELECT vendor FROM cpe WHERE cpe.cve_id = c.cve_id LIMIT 1) AS top_vendor
+       FROM cve c LEFT JOIN cve_state s USING (cve_id)
+       WHERE c.cve_id IN (${placeholders})`,
+    )
+      .bind(...chunk.map((p) => p.cveId))
+      .all<KevHashRow>();
+    for (const r of results) hashRows.set(r.cve_id, r);
+  }
+
+  const hashUpdates: { cveId: string; stateHash: string }[] = [];
+  for (const row of hashRows.values()) {
+    const newStateHash = await computeStateHash(
+      row.severity,
+      row.cvss_base,
+      true,
+      row.epss_score,
+      row.top_vendor,
+    );
+    hashUpdates.push({ cveId: row.cve_id, stateHash: newStateHash });
+  }
+
+  for (let i = 0; i < hashUpdates.length; i += WRITE_SUB_BATCH_SIZE) {
+    const sub = hashUpdates.slice(i, i + WRITE_SUB_BATCH_SIZE);
+    await env.DB.batch(
+      sub.map((u) =>
+        env.DB.prepare('UPDATE cve SET state_hash = ? WHERE cve_id = ?').bind(u.stateHash, u.cveId),
+      ),
+    );
+  }
+
+  // ── 4. Vectorize metadata propagation (single multi-id read + write) ─────
+  // getByIds/upsert take the whole changed set at once, so this is O(1) calls
+  // regardless of how many entries changed — not one Vectorize round trip per
+  // entry (which the per-entry applyKevPatch did). Only entries with an
+  // existing stored vector are re-upserted (metadata-only, reusing the stored
+  // values — no AI call), matching applyKevPatch's behavior.
+  const idsWithCve = hashUpdates.map((u) => u.cveId);
+  if (idsWithCve.length > 0) {
+    const existing = await env.VECTORIZE.getByIds(idsWithCve);
+    const toUpsert = existing
+      .filter((e) => e?.values?.length)
+      .map((e) => {
+        const meta = (e.metadata ?? {}) as Record<string, string | number | boolean>;
+        return { id: e.id, values: e.values as number[], metadata: { ...meta, kev_listed: 1 } };
+      });
+    if (toUpsert.length > 0) {
+      await env.VECTORIZE.upsert(toUpsert);
+    }
+  }
+
+  // ── 5. Cache invalidation ────────────────────────────────────────────────
+  // One delete per changed cve:{id} key, plus the single shared KEV list key.
+  // All changed entries fit in one batch-run of KV deletes via waitUntil, the
+  // same pattern applyEpssPatchBatch uses. KEV runs 4x/day over a ~1,000-entry
+  // catalog, but only genuinely-changed entries get a delete (the vast
+  // majority of runs change nothing), so this stays well within the 1,000/day
+  // KV write+delete cap — the whole reason the change-detect gate exists.
+  ctx.waitUntil(
+    Promise.all([
+      ...changed.map((p) => env.CACHE.delete(`cve:${p.cveId}`)),
+      env.CACHE.delete('threat:kev:list'),
+    ]),
+  );
+
+  return { processed: deduped.length, changed: changed.length };
+}
+
 // ── EPSS patch ─────────────────────────────────────────────────────────────
 
 interface EpssStateRow {

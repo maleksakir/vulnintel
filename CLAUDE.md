@@ -69,19 +69,33 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   is chunked at the 100-param cap regardless of caller
   (`apps/ingest/src/lib/server/processRecord.ts`). Deployed 2026-10-29, see
   `docs/EXECUTION_PLAN.md`'s Phase 0 table for status. **Confirmed repeat
-  pattern:** `apps/ingest`'s NVD path hit this identical bug independently
-  (found/fixed 2026-10-30, same inline-per-record-in-one-cron shape, same
-  producer/consumer fix) — treat this as the default failure mode for any
-  future inline per-record ingest code, not a one-off.
+  pattern (now FOUR times):** `apps/ingest`'s NVD path hit this identical bug
+  independently (found/fixed 2026-10-30), and the KEV fast-lane
+  (`pipelines/kev.ts`, every 6 hours over CISA's full 1,000+-entry catalog)
+  and weekly reconciliation (`pipelines/reconcile.ts`, 30-day NVD window) both
+  had it too — all fixed with the same producer/consumer split (`kev.ts` →
+  `kev-ingest` → `kevQueue.ts`'s `applyKevPatchBatch`; `reconcile.ts` → the
+  existing `nvd-ingest` queue). The KEV fix also removed an unconditional
+  `threat:kev:list` KV delete that fired on every 6-hourly run regardless of
+  whether anything changed — the consumer now deletes it only on a real
+  change. Treat inline per-record D1 work in a cron invocation as the default
+  failure mode for any future ingest code, not a one-off: the fix is always a
+  producer (zero D1, chunk + enqueue) + a `max_batch_size = 1` Queue consumer
+  whose batched D1-query count does NOT grow with the number of changed
+  records.
 - **Cloudflare Queues' 10,000-operations/day allowance (Workers Free plan) is
   one pool shared account-wide, not per-queue** — a write, a read, and a
   delete each count as a separate operation (so one message ≈ 3 operations,
-  ~3,333 messages/day in practice). `apps/ingest` now has 5 queues drawing
+  ~3,333 messages/day in practice). `apps/ingest` now has 6 queues drawing
   from that same pool: `cve-ingest-retry` (per-record retry), `epss-ingest`
   (added 2026-10-27), `osv-ingest` (added 2026-10-29, deployed and migrated
-  2026-10-30, see `docs/EXECUTION_PLAN.md`'s Phase 2 row), and `nvd-ingest`
-  and `mitre-ingest` (both added 2026-10-30, see that file's Phase 0 rows —
-  `nvd-ingest` deployed, `mitre-ingest` not yet). None of them
+  2026-10-30, see `docs/EXECUTION_PLAN.md`'s Phase 2 row), `nvd-ingest`
+  and `mitre-ingest` (both added 2026-10-30), and `kev-ingest` (added
+  2026-10-30 as part of the KEV fast-lane producer/consumer fix — see that
+  file's Phase 0 rows; `nvd-ingest`/`mitre-ingest`/`kev-ingest` code-complete,
+  not all yet provisioned/deployed). The KEV fast-lane enqueues one message
+  per ~500-entry catalog chunk every 6 hours (a handful of messages, not one
+  per entry), so it is a small, bounded draw on this pool. None of them
   individually tracks the others' usage, so a burst on one (e.g. a large
   retry storm) can starve the others' headroom for the rest of the day; no
   incident yet, but design future Queue-based ingest paths with this shared
