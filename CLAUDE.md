@@ -67,15 +67,15 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   (`apps/ingest/src/pipelines/epssQueue.ts`, `max_batch_size = 1` so every
   message gets its own fresh 50-query budget); the surviving inline SELECT
   is chunked at the 100-param cap regardless of caller
-  (`apps/ingest/src/lib/server/processRecord.ts`). See
-  `docs/EXECUTION_PLAN.md`'s Phase 0 table for status — not yet deployed.
+  (`apps/ingest/src/lib/server/processRecord.ts`). Deployed 2026-10-29, see
+  `docs/EXECUTION_PLAN.md`'s Phase 0 table for status.
 - **Cloudflare Queues' 10,000-operations/day allowance (Workers Free plan) is
   one pool shared account-wide, not per-queue** — a write, a read, and a
   delete each count as a separate operation (so one message ≈ 3 operations,
   ~3,333 messages/day in practice). `apps/ingest` now has 3 queues drawing
   from that same pool: `cve-ingest-retry` (per-record retry), `epss-ingest`
-  (added 2026-10-27), and `osv-ingest` (added 2026-10-29, see
-  `docs/EXECUTION_PLAN.md`'s Phase 2 row — not yet deployed). None of them
+  (added 2026-10-27), and `osv-ingest` (added 2026-10-29, deployed and
+  migrated 2026-10-30, see `docs/EXECUTION_PLAN.md`'s Phase 2 row). None of them
   individually tracks the others' usage, so a burst on one (e.g. a large
   retry storm) can starve the others' headroom for the rest of the day; no
   incident yet, but design future Queue-based ingest paths with this shared
@@ -98,8 +98,46 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   feature that calls `env.AI.run(...)` — ingest or app-side — draws from
   this same pool and needs the same kind of self-limiting ceiling, not just
   try/catch.
-- OSV.dev ingestion (`apps/ingest/src/adapters/osv.ts`, not yet deployed)
-  adds two new outbound hosts beyond NVD/MITRE/CISA/FIRST.org:
+- **A D1 database at/over its size cap cannot be shrunk by `DELETE` — not
+  even a single-row one, with or without a subquery.** Found 2026-10-30
+  applying OSV's migration: `wrangler d1 migrations apply` failed with
+  `Exceeded maximum DB size [7500]` at 501MB. Every attempted manual
+  `DELETE` (batched subquery, explicit literal ID list, even one row) also
+  failed, with either `Exceeded maximum DB size [7500]` or
+  `D1 DB exceeded its CPU time limit and was reset [7429]` — SQLite needs
+  transactional/journal headroom to execute *any* write safely, and D1 won't
+  allocate past the cap even temporarily, so the aging sweep's batched-delete
+  fix (bullet above) can never recover a database that's already over the
+  line, only prevent one from getting there. **`DROP TABLE` works fine even
+  at/over the cap** (tested: one empty table, then a 126k-row table that
+  freed ~97.5MB in a single statement) — if a DB is ever stuck over cap
+  again, drop unused tables first, don't try to delete your way out row by
+  row. Also found while diagnosing this: production D1 carried **~53 unused
+  tables** (only ~28 belong to this repo's actual schema) — a far larger
+  remnant of unrecoverable prior work than the already-known "6 lost
+  ingestion sources" row below, covering a full asset-inventory/SBOM/
+  watchlist/remediation/notification/multi-tenant data model that was never
+  committed to this repo. Two of those tables alone (`vulnerability`, a
+  complete 126k-row parallel to `cve`; `cve_field_provenance`, 93k rows)
+  accounted for most of a 132MB cleanup (501MB → 368.81MB). Before adding
+  any new migration, a quick `sqlite_master` listing against production is
+  worth the (tiny) D1 read cost to check it still matches migrations
+  0001–0007's expected table set — this drifted silently for a long time
+  before anyone checked.
+- **`AGING`'s cron (`30 2 * * *`) recorded zero invocations between
+  2026-08-27 and 2026-10-30** despite being correctly declared in
+  `wrangler.toml` and correctly matched in `index.ts`'s `scheduled()`
+  dispatch — confirmed not a code bug (other crons on the same Worker fire
+  on schedule; `markIngestStarted` is AGING's unconditional first statement,
+  so if the cron fired at all, `ingest_run.AGING.last_started_at` would show
+  it, and it never moved). Cause still unknown as of 2026-10-30 — no
+  read-only way was found via `wrangler` to list a Worker's actually-
+  registered cron triggers (only `wrangler triggers deploy`, which mutates).
+  If this is still stale after the next `30 2 * * *` UTC window, it needs a
+  Cloudflare dashboard check or support ticket, not more code changes — see
+  `docs/EXECUTION_PLAN.md`'s Phase 0 table.
+- OSV.dev ingestion (`apps/ingest/src/adapters/osv.ts`, deployed and
+  migrated 2026-10-30) adds two new outbound hosts beyond NVD/MITRE/CISA/FIRST.org:
   `storage.googleapis.com` (GCS per-ecosystem `modified_id.csv` export, used
   for delta discovery) and `api.osv.dev` (per-record REST fetch). Note for
   `docs-writer`/`security-reviewer`: `docs/network/whitelist-ledger.md` is
