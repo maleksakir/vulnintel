@@ -58,8 +58,9 @@ describe('runAgingSweep cache invalidation', () => {
     expect(deletedKeys.some((k) => k.startsWith('dash:kpi:'))).toBe(false);
 
     // The aged-out rows are actually gone.
-    const remaining = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM cve')
-      .first<{ n: number }>();
+    const remaining = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM cve').first<{
+      n: number;
+    }>();
     expect(remaining?.n).toBe(0);
   });
 
@@ -77,8 +78,9 @@ describe('runAgingSweep cache invalidation', () => {
     // waste the 1,000/day KV cap).
     expect(spies.cacheDelete).not.toHaveBeenCalled();
 
-    const remaining = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM cve')
-      .first<{ n: number }>();
+    const remaining = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM cve').first<{
+      n: number;
+    }>();
     expect(remaining?.n).toBe(1);
   });
 
@@ -97,8 +99,9 @@ describe('runAgingSweep cache invalidation', () => {
     await runAgingSweep(testEnv, ctx);
     await waitOnExecutionContext(ctx);
 
-    const remaining = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM cve')
-      .first<{ n: number }>();
+    const remaining = await testEnv.DB.prepare('SELECT COUNT(*) AS n FROM cve').first<{
+      n: number;
+    }>();
     expect(remaining?.n).toBe(1); // KEV-exempt, retained
     expect(spies.cacheDelete).not.toHaveBeenCalled(); // nothing deleted → nothing invalidated
   });
