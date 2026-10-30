@@ -76,10 +76,12 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
 - **Cloudflare Queues' 10,000-operations/day allowance (Workers Free plan) is
   one pool shared account-wide, not per-queue** — a write, a read, and a
   delete each count as a separate operation (so one message ≈ 3 operations,
-  ~3,333 messages/day in practice). `apps/ingest` now has 3 queues drawing
+  ~3,333 messages/day in practice). `apps/ingest` now has 5 queues drawing
   from that same pool: `cve-ingest-retry` (per-record retry), `epss-ingest`
-  (added 2026-10-27), and `osv-ingest` (added 2026-10-29, deployed and
-  migrated 2026-10-30, see `docs/EXECUTION_PLAN.md`'s Phase 2 row). None of them
+  (added 2026-10-27), `osv-ingest` (added 2026-10-29, deployed and migrated
+  2026-10-30, see `docs/EXECUTION_PLAN.md`'s Phase 2 row), and `nvd-ingest`
+  and `mitre-ingest` (both added 2026-10-30, see that file's Phase 0 rows —
+  `nvd-ingest` deployed, `mitre-ingest` not yet). None of them
   individually tracks the others' usage, so a burst on one (e.g. a large
   retry storm) can starve the others' headroom for the rest of the day; no
   incident yet, but design future Queue-based ingest paths with this shared

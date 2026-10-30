@@ -117,6 +117,29 @@ max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "nvd-ingest-dlq"
 
+# MITRE CWE gap-fill queue. Replaces the old, removed full MITRE delta
+# re-ingest (adapters/mitre.ts used to call MITRE's Secretariat/Bulk-
+# Download-only LIST endpoint, which returns HTTP 400 for public callers —
+# never actually working in production). pipelines/daily.ts's NVD section
+# now only collects + chunks + enqueues the CVE IDs of NVD records it saw
+# with zero CWEs (capped at MITRE_LOOKUP_MAX_PER_RUN = 1000/run);
+# pipelines/mitreQueue.ts's consumer does the actual lookup (MITRE's PUBLIC
+# single-record endpoint, one fetch per CVE ID, bounded concurrency) + D1
+# write, one small message (≤20 CVE IDs) per invocation. max_batch_size = 1
+# keeps that one-message-per-invocation guarantee exact, so each consumer
+# invocation's D1 query count stays small and predictable (worst case: 20
+# fetches + 1 read + 1 batched write ≈ 22 operations, comfortably under 50).
+[[queues.producers]]
+queue = "mitre-ingest"
+binding = "MITRE_QUEUE"
+
+[[queues.consumers]]
+queue = "mitre-ingest"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "mitre-ingest-dlq"
+
 # OSV (GHSA) queue. Carries both the lightweight daily OSV_DISCOVER kick-off
 # (sent from pipelines/daily.ts's 01:00 UTC cron — all 5 Workers Free Cron
 # Trigger slots are already used, so OSV can't get its own) and the
@@ -217,6 +240,19 @@ max_batch_size = 1
 max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "nvd-ingest-dlq-staging"
+
+# Isolated from production's mitre-ingest queue for the same reason as
+# epss-ingest-staging above.
+[[env.staging.queues.producers]]
+queue = "mitre-ingest-staging"
+binding = "MITRE_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "mitre-ingest-staging"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "mitre-ingest-dlq-staging"
 
 # Isolated from production's osv-ingest queue for the same reason as
 # epss-ingest-staging above.

@@ -41,6 +41,7 @@ export type {
   EpssQueueMessage,
   IngestSource,
   KevPatch,
+  MitreCweQueueMessage,
   NormalizedCpe,
   NormalizedCveRecord,
   NvdQueueMessage,

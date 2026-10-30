@@ -1,5 +1,6 @@
 import type {
   EpssQueueMessage,
+  MitreCweQueueMessage,
   NvdQueueMessage,
   OsvQueueMessage,
   RetryMessage,
@@ -35,6 +36,12 @@ export interface Env {
   // OSV_FETCH work items; pipelines/osv.ts's runOsvDiscovery/
   // runOsvFetchBatch consume both from the same queue (see wrangler.toml).
   OSV_QUEUE: Queue<OsvQueueMessage>;
+  // MITRE CWE gap-fill queue producer — daily.ts's NVD section enqueues
+  // chunked CVE IDs here for any NVD record it saw with zero CWEs;
+  // pipelines/mitreQueue.ts's consumer re-checks each one against MITRE's
+  // public single-record endpoint and writes only CWE rows (never
+  // cve/cve_state — see adapters/mitre.ts and pipelines/mitreQueue.ts).
+  MITRE_QUEUE: Queue<MitreCweQueueMessage>;
   // Secrets (injected via `wrangler secret put`, never in wrangler.toml).
   NVD_API_KEY: string;
   CLOUDFLARE_API_TOKEN: string;

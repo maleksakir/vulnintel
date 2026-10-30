@@ -239,8 +239,13 @@ The ingest worker is **not internet-reachable**. Its security model is:
 - `workers_dev = false` in `wrangler.toml` — no `*.workers.dev` URL exists.
 - No custom hostnames bound — the only invocation paths are Cron Triggers
   and the Queue consumer.
-- Outbound calls (to NVD, MITRE GitHub, CISA KEV, FIRST EPSS) use HTTPS
-  with strict certificate validation (the Workers runtime default).
+- Outbound calls (to NVD, `cveawg.mitre.org`, CISA KEV, FIRST EPSS) use
+  HTTPS with strict certificate validation (the Workers runtime default).
+  (Corrected 2026-10-30, `docs-writer`: this host was already outbound
+  before today — the pre-2026-10-30 `mitre` adapter called the same
+  `cveawg.mitre.org` host, just the wrong endpoint shape on it, see
+  `docs/EXECUTION_PLAN.md`'s MITRE row — "MITRE GitHub" never matched what
+  either version of the adapter actually called.)
 - Source API keys (e.g. `NVD_API_KEY`) are Wrangler secrets, never logged.
 - The ingest worker never reads the `corp_authorized_sources` list — it
   has no public requests to filter.

@@ -1,10 +1,16 @@
-import type { EpssQueueMessage, NvdQueueMessage, RetryMessage } from '@threat-lens/contracts';
+import type {
+  EpssQueueMessage,
+  MitreCweQueueMessage,
+  NvdQueueMessage,
+  RetryMessage,
+} from '@threat-lens/contracts';
 import { processRecord } from './lib/server/processRecord';
 import { runAgingSweep } from './pipelines/aging';
 import { runDailyFullDelta } from './pipelines/daily';
 import { runEpssConsumer } from './pipelines/epssQueue';
 import { runIpListPrune } from './pipelines/iplist';
 import { runKevFastLane } from './pipelines/kev';
+import { runMitreCweConsumer } from './pipelines/mitreQueue';
 import { runNvdConsumer } from './pipelines/nvdQueue';
 import { isValidOsvQueueMessage, runOsvDiscovery, runOsvFetchBatch } from './pipelines/osv';
 import { runWeeklyReconciliation } from './pipelines/reconcile';
@@ -48,7 +54,7 @@ export default {
 
   /**
    * Queue consumer — dispatches by queue name since this Worker now
-   * subscribes to three distinct queues.
+   * subscribes to five distinct queues.
    *
    * `epss-ingest` (+ `epss-ingest-staging`): one message = one chunk of a
    *   day's EPSS CSV snapshot, produced by pipelines/daily.ts. Routed by
@@ -62,6 +68,13 @@ export default {
    *   pipelines/daily.ts. A malformed body is acked (dropped), not retried —
    *   same reasoning as the epss-ingest malformed-message branch below.
    *   max_retries=3 → exhausted messages land in nvd-ingest-dlq.
+   *
+   * `mitre-ingest` (+ `mitre-ingest-staging`): one message = one bounded
+   *   chunk (≤20) of CVE IDs that an NVD record was seen with zero CWEs,
+   *   produced by pipelines/daily.ts's NVD section. A malformed body is
+   *   acked (dropped), not retried — same reasoning as the epss-ingest
+   *   malformed-message branch below. max_retries=3 → exhausted messages
+   *   land in mitre-ingest-dlq.
    *
    * `osv-ingest` (+ `osv-ingest-staging`): carries both the daily
    *   OSV_DISCOVER kick-off (from pipelines/daily.ts) and the per-record
@@ -94,6 +107,18 @@ export default {
       for (const msg of batch.messages) {
         try {
           await runNvdConsumer(msg.body as NvdQueueMessage, env, ctx);
+          msg.ack();
+        } catch {
+          msg.retry();
+        }
+      }
+      return;
+    }
+
+    if (batch.queue.startsWith('mitre-ingest')) {
+      for (const msg of batch.messages) {
+        try {
+          await runMitreCweConsumer(msg.body as MitreCweQueueMessage, env, ctx);
           msg.ack();
         } catch {
           msg.retry();

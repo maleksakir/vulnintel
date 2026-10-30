@@ -19,8 +19,11 @@ import { spyOnBindings, testEnv, useCleanBindings } from './helpers';
 // (mocked adapters were never invoked; the real ones ran and hit the
 // network, timing the test out). Overriding the actual `fetch` global that
 // the adapters call is a lower-level seam that isn't affected by that
-// limitation, and NVD/MITRE are given trivially-empty responses so this
-// test can isolate the EPSS path's D1 behavior.
+// limitation, and NVD is given a trivially-empty response so this test can
+// isolate the EPSS path's D1 behavior. (MITRE no longer has a fetch of its
+// own in this cron path — see pipelines/mitreQueue.ts — so no stub for it
+// is needed here; any accidental call to cveawg.mitre.org would now hit
+// this stub's `throw` branch below instead.)
 
 const SYNTHETIC_PATCH_COUNT = 3247; // > 3 full EPSS_MESSAGE_CHUNK_SIZE (1000) chunks, deliberately not a round multiple
 
@@ -91,19 +94,6 @@ describe('EPSS queue producer (daily.ts)', () => {
               startIndex: 0,
               totalResults: 0,
               vulnerabilities: [],
-            }),
-            { status: 200 },
-          );
-        }
-        if (url.startsWith('https://cveawg.mitre.org/')) {
-          return new Response(
-            JSON.stringify({
-              format: 'CVE_RECORD',
-              numberOfCVEs: 0,
-              currentPage: 0,
-              itemsPerPage: 500,
-              nextPage: null,
-              cveRecords: [],
             }),
             { status: 200 },
           );

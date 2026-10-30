@@ -36,33 +36,46 @@ Each adapter is a pure function `(rawPayload) => NormalizedCveRecord[]` or
 | Adapter | Input                                      | Output                | Notes                                       |
 |---------|--------------------------------------------|-----------------------|---------------------------------------------|
 | `nvd`   | NVD CVE 2.0 API delta JSON                 | `NormalizedCveRecord[]`| Conditional `If-Modified-Since`; honour rate-limit header |
-| `mitre` | MITRE CVE List v5 commit diff (raw JSON)   | `NormalizedCveRecord[]`| GitHub raw content; deduplicates against NVD when both produce the same id |
+| `mitre` | CVE ID (string) — one per lookup, not a payload fetch | `{ outcome, cwes: string[] }` per ID | CWE-only gap-fill supplement, **not** a record source — see the note below |
 | `kev`   | CISA KEV catalog JSON                      | `KevPatch[]`           | Patches `cve_state.kev_*` fields            |
 | `epss`  | FIRST EPSS daily CSV                       | `EpssPatch[]`          | Patches `cve_state.epss_*` fields           |
 
 A record that fails normalization is written to `cve_quarantine` with the
 raw payload and the parser error. The adapter does **not** throw on a
 single bad record; it returns the good records and the quarantine list.
+(This applies to `nvd`/`kev`/`epss`; `mitre` is not payload-shaped the same
+way — see below.)
 
-> **Drift flag (2026-10-30, `docs-writer`):** the table above describes the
-> `mitre` adapter's input as "MITRE CVE List v5 commit diff, GitHub raw
-> content" that "deduplicates against NVD when both produce the same id."
-> The code at `apps/ingest/src/adapters/mitre.ts` does neither: it calls the
-> live `cveawg.mitre.org/api/cve` REST endpoint (not a GitHub commit diff)
-> with query parameters (`time_modified.start`/`.end`, `pageSize`,
-> `pageNumber`) and reads a top-level `cveId` field from each response
-> record — neither matches that API's actual contract — and performs no
-> NVD-dedup step anywhere in the adapter or its caller. It fails gracefully
-> (wrapped in `try`/`catch` in `pipelines/daily.ts`, never blocking NVD or
-> EPSS), but has likely produced zero MITRE-sourced CWE supplementation
-> since it was written. Found 2026-10-30 while investigating a separate,
-> unrelated NVD ingestion bug — see `docs/EXECUTION_PLAN.md`'s Phase 2
-> "MITRE adapter" row for the tracked item. Per this file's own convention,
-> this is reported, not resolved: whether the code should be rewritten to
-> match this section's intent (switch to the CVE List v5 GitHub repo, as
-> the "Explicitly not doing"/Phase roadmap context implies was the original
-> plan) or this section should be rewritten to describe whatever the
-> long-term MITRE approach ends up being is a `planner` decision.
+> **Spec updated (2026-10-30, `docs-writer`, per `planner`'s design
+> decision):** this section previously described the `mitre` adapter as
+> reading "MITRE CVE List v5 commit diff, GitHub raw content" and
+> deduplicating against NVD when both produced the same id. That was never
+> what the code did — see `docs/EXECUTION_PLAN.md`'s Phase 0 "MITRE adapter"
+> row for the investigation: the old code called MITRE's Secretariat/
+> Bulk-Download-only LIST endpoint (`cveawg.mitre.org/api/cve` with
+> `time_modified.start`/`.end`/`pageSize`/`pageNumber` query params), which
+> returns HTTP 400 for ordinary public callers and never actually worked in
+> production, and it fabricated synthetic CPEs that would have corrupted
+> NVD's data had the endpoint bug alone been fixed without a redesign.
+>
+> As of 2026-10-30 the `mitre` adapter is a narrow CWE gap-fill, not a
+> record source: `apps/ingest/src/pipelines/daily.ts`'s NVD producer loop
+> collects the CVE IDs of any NVD record it sees with zero CWEs; a new
+> `mitre-ingest` queue (`apps/ingest/src/pipelines/mitreQueue.ts`)
+> re-verifies each one still qualifies, then calls
+> `fetchMitreCweSupplement(cveId)` against MITRE's **public** single-record
+> endpoint (`GET cveawg.mitre.org/api/cve/{id}`, no auth needed) and
+> extracts CWE ids — the structured `problemTypes[].descriptions[].cweId`
+> field when present, or a free-text `/^CWE-(\d+)\b/` regex fallback for a
+> CNA that only wrote the CWE as prose. It never produces a
+> `NormalizedCveRecord` and never touches `cve`/`cpe`/`cve_reference`/
+> `text_hash`/`state_hash`/Vectorize/Workers AI/KV — only `cwe`/`cve_cwe`/
+> `cve_source_provenance`. This also means the "pure function
+> `(rawPayload) => NormalizedCveRecord[] | StatePatch[]`" framing in the
+> paragraph above the table no longer holds for `mitre` specifically; it
+> still holds for `nvd`/`kev`/`epss`. Code + tests (141/141 passing,
+> `tsc --noEmit` clean) + security review complete 2026-10-30; not yet
+> deployed — see `docs/EXECUTION_PLAN.md`'s Phase 0 row for status.
 
 ### 5.1.3 Canonical record shape (`packages/contracts/src/cve.ts`)
 
@@ -119,8 +132,12 @@ export interface EpssPatch {
 
 ### 5.1.4 Persistence sequence
 
-For each `NormalizedCveRecord` returned by the NVD or MITRE adapter, the
-pipeline executes the following in this exact order:
+For each `NormalizedCveRecord` returned by the NVD adapter, the pipeline
+executes the following in this exact order. (As of 2026-10-30 the `mitre`
+adapter no longer produces `NormalizedCveRecord`s — see §5.1.2's note above
+— so this sequence applies to `nvd` only; `mitre`'s CWE gap-fill writes
+directly to `cwe`/`cve_cwe`/`cve_source_provenance` via its own consumer,
+bypassing this sequence entirely.)
 
 1. **Compute hashes:**
    - `textHash` over (description, cwes joined, top-3 vendor:product
@@ -177,12 +194,22 @@ The pipeline never stops mid-batch on a single failure.
 4. If the CVE row does not exist (KEV/EPSS for a record we have not yet ingested):
    - **For an `EpssPatch`**: Write to `cve_quarantine` with `error_code = 'ORPHAN_STATE'` (so the next NVD delta can resolve it).
    - **For a `KevPatch`**:
-     1. Trigger a targeted upstream fetch for the CVE ID using the NVD CVE API v2.0 (falling back to the MITRE raw JSON commit endpoint if NVD is down or rate-limited).
+     1. Trigger a targeted upstream fetch for the CVE ID using the NVD CVE API v2.0 (falling back to MITRE's public single-record endpoint, `GET cveawg.mitre.org/api/cve/{id}` — the same endpoint §5.1.2 describes the `mitre` CWE gap-fill using, corrected 2026-10-30 from this section's prior "MITRE raw JSON commit endpoint" wording, which was never a real endpoint — if NVD is down or rate-limited).
      2. If the fetch succeeds:
         - Normalize the response into a `NormalizedCveRecord`.
         - Execute both the base CVE record insertion (including its related tables and CWE/provenance upserts) and the `KevPatch` application (setting `kev_listed = 1` and saving KEV metadata in `cve_state`) inside a single atomic D1 database transaction (using `db.batch()`). Wrapping these writes in a single transaction guarantees that the aging sweep cannot race and delete the record between the base insert and the KEV state write.
      3. If the fetch fails (due to API down, rate limit, or not found upstream):
         - Write to `cve_quarantine` with `error_code = 'ORPHAN_FETCH_FAILED'`.
+
+> **Drift flag (2026-10-30, `docs-writer`):** beyond the endpoint-name
+> correction just above, `apps/ingest/src/lib/server/processRecord.ts`'s
+> `applyKevPatch` does not appear to implement this orphan-fetch fallback at
+> all — it reads/writes `cve_state` directly with no check for whether a
+> `cve` row exists first, no upstream fetch, and no `cve_quarantine` write.
+> Whether this orphan path was ever built elsewhere, was dropped silently,
+> or this section describes intended-but-unbuilt behavior is not something
+> this pass investigated beyond this one file — flagging per this file's own
+> rule that spec/code drift is a bug, not resolving it (`planner` call).
 
 ### 5.1.6 Aging sweep (`runAgingSweep`)
 

@@ -13,7 +13,9 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 | Cache | Cloudflare KV — write-only: invalidates `CACHE` keys after record updates |
 | Retry | Cloudflare Queues (`cve-ingest-retry` → DLQ `cve-ingest-dlq`) |
 | EPSS ingest | Cloudflare Queues (`epss-ingest` → DLQ `epss-ingest-dlq`) — decouples EPSS's D1 writes from the daily cron invocation (see below) |
-| OSV ingest | Cloudflare Queues (`osv-ingest` → DLQ `osv-ingest-dlq`) — carries both the daily discovery kick-off and per-record fetch work, since OSV has no cron slot of its own (see below) |
+| NVD ingest | Cloudflare Queues (`nvd-ingest` → DLQ `nvd-ingest-dlq`) — decouples NVD's per-record `processRecord()` D1/Vectorize/AI writes from the daily cron invocation, same reasoning as EPSS ingest (see below). **Not yet deployed** |
+| MITRE ingest | Cloudflare Queues (`mitre-ingest` → DLQ `mitre-ingest-dlq`) — narrow CWE-only gap-fill lookup against NVD records with zero CWEs; replaces the old, broken full-MITRE-delta re-ingest (see below). **Not yet deployed** |
+| OSV ingest | Cloudflare Queues (`osv-ingest` → DLQ `osv-ingest-dlq`) — carries both the daily discovery kick-off and per-record fetch work, since OSV has no cron slot of its own (see below). Deployed and live |
 | Telemetry | Analytics Engine — one event per record, one event per pipeline run |
 | Types | `@threat-lens/contracts` workspace package |
 
@@ -32,10 +34,10 @@ Cron-driven ingest worker for Threat-Lens CVE Hub. Pulls vulnerability data from
 | Adapter | Source | Notes |
 |---------|--------|-------|
 | `nvd.ts` | NVD CVE API 2.0 | 2000 records/page · 600ms inter-page delay · Retry-After honoured |
-| `mitre.ts` | MITRE CVE Services API | 500 records/page · CVE JSON 5.0 format |
+| `mitre.ts` | MITRE public single-record API (`cveawg.mitre.org/api/cve/{id}`) | CWE-only gap-fill, one CVE ID per fetch — not a record source. Looks up CVE IDs NVD's own ingestion saw with zero CWEs; extracts the structured `cweId` or falls back to a free-text `/^CWE-(\d+)\b/` regex, capped at 10 CWEs/CVE. Replaces the old `fetchMitreDelta`/list-endpoint code, which called MITRE's Secretariat/Bulk-Download-only LIST endpoint (HTTP 400 for public callers, never worked in production) and fabricated synthetic CPEs — see `docs/EXECUTION_PLAN.md`'s Phase 0 MITRE row. **Not yet deployed** |
 | `kev.ts` | CISA KEV JSON feed | Full snapshot on every run |
 | `epss.ts` | EPSS CSV (gzip) | `DecompressionStream('gzip')` · yields per-CVE patches |
-| `osv.ts` | OSV.dev (GHSA, CVE-linked only) | GCS `modified_id.csv` per-ecosystem export (`storage.googleapis.com`) for delta discovery · per-record REST fetch (`api.osv.dev/v1/vulns/{id}`) · 8 ecosystem dirs · 1MB/record cap · **not yet deployed, see `docs/EXECUTION_PLAN.md`** |
+| `osv.ts` | OSV.dev (GHSA, CVE-linked only) | GCS `modified_id.csv` per-ecosystem export (`storage.googleapis.com`) for delta discovery · per-record REST fetch (`api.osv.dev/v1/vulns/{id}`) · 8 ecosystem dirs · 1MB/record cap · deployed and migration applied 2026-10-30, see `docs/EXECUTION_PLAN.md`'s Phase 2 row |
 
 ## Persistence Engine (`src/lib/server/processRecord.ts`)
 
@@ -73,9 +75,11 @@ processRecord(record)
 
 | File | Pipeline | Key behaviour |
 |------|----------|---------------|
-| `daily.ts` | `runDailyFullDelta` | Runs NVD → MITRE inline (`processRecord` per record). EPSS is fetch-chunk-enqueue only — no D1 writes in this invocation, see `epssQueue.ts` below. Writes `ingest_run` rows for all three sources (EPSS's reflects enqueue outcome, not D1-write outcome) |
+| `daily.ts` | `runDailyFullDelta` | Pure producer for NVD, MITRE, and EPSS — fetches, chunks, and enqueues onto `nvd-ingest`, `mitre-ingest`, and `epss-ingest` respectively; zero D1/Vectorize/AI work of its own (that moved to the three queue consumers below). The NVD loop also collects the CVE IDs of any record it sees with zero CWEs (capped at 1,000/run, overflow logged) and chunks those onto `mitre-ingest`. Writes `ingest_run` rows for all three sources, reflecting enqueue outcome, not D1-write outcome |
+| `nvdQueue.ts` | `runNvdConsumer` | Queue consumer for `nvd-ingest`/`nvd-ingest-staging`. One invocation per queued message (≤8 `NormalizedCveRecord`s, byte-capped at ~100KB), runs the unchanged `processRecord()` per record with its own fresh D1 budget. Split out from `daily.ts` for the same reason as `epssQueue.ts`: NVD's 48h delta processed inline could exceed the 50-D1-query-per-invocation Free-plan cap. **Not yet deployed** |
 | `epssQueue.ts` | `runEpssConsumer` | Queue consumer for `epss-ingest`/`epss-ingest-staging`. One invocation per queued message (~1,000 EPSS patches); applies them to D1 via `applyEpssPatchBatch`'s two-hash-style change detection. Split out from `daily.ts` because FIRST.org's feed is a 250k+-row full daily snapshot — doing the change-detection reads + writes inline would exceed D1's 100-bound-param-per-query and 50-query-per-invocation Free-plan caps; each queue invocation gets its own fresh budget instead |
-| `osv.ts` | `runOsvDiscovery` / `runOsvFetchBatch` | Queue consumer for `osv-ingest`/`osv-ingest-staging`, two message kinds. `OSV_DISCOVER` (kicked off daily from `daily.ts`, since OSV has no cron slot of its own) streams all 8 ecosystem dirs' `modified_id.csv`, skip-if-unchanged filters, runs a bounded re-link pass, and chunks the result into `OSV_FETCH` messages (20 items each). `OSV_FETCH` fetches+normalizes each item (bounded concurrency) and writes via `applyOsvPatchBatch`. **Not yet deployed** — see `docs/EXECUTION_PLAN.md`'s Phase 2 row for status, including an open security finding that blocks deploy |
+| `mitreQueue.ts` | `runMitreCweConsumer` | Queue consumer for `mitre-ingest`/`mitre-ingest-staging`. One invocation per queued message (≤20 CVE IDs); re-verifies each still has zero CWEs (a fresh D1 read, since time may have passed since `daily.ts` collected them), fetches MITRE's single-record endpoint per ID (bounded concurrency), and writes only `cwe`/`cve_cwe`/`cve_source_provenance` — never `cve`/`cpe`/`cve_reference`/hashes/Vectorize/AI/KV. **Not yet deployed** |
+| `osv.ts` | `runOsvDiscovery` / `runOsvFetchBatch` | Queue consumer for `osv-ingest`/`osv-ingest-staging`, two message kinds. `OSV_DISCOVER` (kicked off daily from `daily.ts`, since OSV has no cron slot of its own) streams all 8 ecosystem dirs' `modified_id.csv`, skip-if-unchanged filters, runs a bounded re-link pass, and chunks the result into `OSV_FETCH` messages (20 items each). `OSV_FETCH` fetches+normalizes each item (bounded concurrency) and writes via `applyOsvPatchBatch`. Deployed and migration applied 2026-10-30 — see `docs/EXECUTION_PLAN.md`'s Phase 2 row |
 | `kev.ts` | `runKevFastLane` | Applies all KEV patches; invalidates `threat:kev:list` KV key |
 | `reconcile.ts` | `runWeeklyReconciliation` | 30-day NVD window; two-hash means unchanged records are cheap no-ops |
 | `aging.ts` | `runAgingSweep` | Hard-deletes CVEs older than 24 months (KEV-exempt); rebuilds `cpe_search` FTS; writes `cve_metrics_daily` |
@@ -100,6 +104,21 @@ epss-ingest (+ -staging) → runEpssConsumer (src/pipelines/epssQueue.ts)
                                                     ↓ on 3rd failure
                                             epss-ingest-dlq
 
+nvd-ingest (+ -staging) → runNvdConsumer (src/pipelines/nvdQueue.ts)
+  │
+  └─ processRecord() per record (≤8/message, byte-capped) — full two-hash
+     D1 + Vectorize + AI path, same as cve-ingest-retry's UPSERT_ALL
+                                                    ↓ on 3rd failure
+                                            nvd-ingest-dlq
+
+mitre-ingest (+ -staging) → runMitreCweConsumer (src/pipelines/mitreQueue.ts)
+  │
+  └─ re-check zero-CWE qualification (fresh D1 read) → fetch MITRE's
+     single-record endpoint per CVE ID (bounded concurrency) → write only
+     cwe/cve_cwe/cve_source_provenance for CVEs that gained ≥1 CWE
+                                                    ↓ on 3rd failure
+                                            mitre-ingest-dlq
+
 osv-ingest (+ -staging) → src/pipelines/osv.ts, dispatched by message kind
   │
   ├─ OSV_DISCOVER → runOsvDiscovery (cursor + 8-dir GCS scan + re-link pass
@@ -110,11 +129,15 @@ osv-ingest (+ -staging) → src/pipelines/osv.ts, dispatched by message kind
                                             osv-ingest-dlq
 ```
 
-`max_batch_size = 1` on the `epss-ingest` and `osv-ingest` consumers
-(`wrangler.toml`) means one queue message = one invocation, so each gets its
-own fresh 50-D1-query budget — the reason these queues exist rather than
-EPSS/OSV going through `cve-ingest-retry`. **Not yet deployed** — see
-`docs/EXECUTION_PLAN.md`'s Phase 2 row for status.
+`max_batch_size = 1` on the `epss-ingest`, `nvd-ingest`, `mitre-ingest`, and
+`osv-ingest` consumers (`wrangler.toml`) means one queue message = one
+invocation, so each gets its own fresh 50-D1-query budget — the reason
+these queues exist rather than going through `cve-ingest-retry`.
+`epss-ingest` and `osv-ingest` are deployed and live. `nvd-ingest` and
+`mitre-ingest` are code-complete, tested, and security-reviewed but **not
+yet deployed** (queues declared in `wrangler.toml` but not yet provisioned
+via `wrangler queues create`, and the code not yet `wrangler deploy`d) —
+see `docs/EXECUTION_PLAN.md`'s Phase 0 rows for status.
 
 ## Backfill (`src/scripts/backfill.ts`)
 
@@ -169,7 +192,9 @@ The ingest worker deletes these keys after record updates so the app worker neve
 | `ANALYTICS` | Analytics Engine | Pipeline telemetry |
 | `RETRY_QUEUE` | Queue producer | Failed record retry |
 | `EPSS_QUEUE` | Queue producer | EPSS patch chunks, produced by `daily.ts`, consumed by `epssQueue.ts` |
-| `OSV_QUEUE` | Queue producer | OSV discover/fetch messages, produced by `daily.ts` (kick-off) and `pipelines/osv.ts` itself (fetch chunks), consumed by `pipelines/osv.ts`. **Not yet deployed** |
+| `NVD_QUEUE` | Queue producer | NVD `NormalizedCveRecord` batches (≤8, byte-capped), produced by `daily.ts`, consumed by `nvdQueue.ts`. Code-complete, **not yet deployed** |
+| `MITRE_QUEUE` | Queue producer | Zero-CWE CVE ID chunks (≤20), produced by `daily.ts`'s NVD section, consumed by `mitreQueue.ts`. Code-complete, **not yet deployed** |
+| `OSV_QUEUE` | Queue producer | OSV discover/fetch messages, produced by `daily.ts` (kick-off) and `pipelines/osv.ts` itself (fetch chunks), consumed by `pipelines/osv.ts`. Deployed and live (2026-10-30) |
 
 ## Secrets
 

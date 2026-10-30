@@ -30,17 +30,6 @@ function requestUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
-function emptyMitreResponse() {
-  return {
-    format: 'CVE_RECORD',
-    numberOfCVEs: 0,
-    currentPage: 0,
-    itemsPerPage: 500,
-    nextPage: null,
-    cveRecords: [],
-  };
-}
-
 async function gzip(text: string): Promise<Uint8Array> {
   const cs = new CompressionStream('gzip');
   const writer = cs.writable.getWriter();
@@ -125,9 +114,6 @@ function stubFetch(nvdBody: unknown, gzippedEpssCsv: Uint8Array): void {
       const url = requestUrl(input);
       if (url.startsWith('https://services.nvd.nist.gov/')) {
         return new Response(JSON.stringify(nvdBody), { status: 200 });
-      }
-      if (url.startsWith('https://cveawg.mitre.org/')) {
-        return new Response(JSON.stringify(emptyMitreResponse()), { status: 200 });
       }
       if (url.startsWith('https://epss.cyentia.com/')) {
         return new Response(gzippedEpssCsv, {

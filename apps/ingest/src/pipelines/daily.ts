@@ -1,9 +1,8 @@
-import type { EpssPatch, NormalizedCveRecord } from '@threat-lens/contracts';
+import type { EpssPatch, MitreCweQueueMessage, NormalizedCveRecord } from '@threat-lens/contracts';
 import { fetchEpssCsv } from '../adapters/epss';
-import { fetchMitreDelta } from '../adapters/mitre';
+import { CVE_ID_SHAPE } from '../adapters/mitre';
 import { fetchNvdDelta } from '../adapters/nvd';
 import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
-import { processRecord } from '../lib/server/processRecord';
 import type { Env } from '../types';
 
 const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety overlap
@@ -49,10 +48,46 @@ const NVD_QUEUE_MAX_BYTES = 100_000;
 // fixed allowance rather than exact structural accounting.
 const NVD_MESSAGE_WRAPPER_OVERHEAD_BYTES = 16;
 
+// MITRE CWE gap-fill lookup. The NVD loop below collects the CVE IDs of
+// any record it saw with zero CWEs (`record.cwes.length === 0`) and hands
+// them to a dedicated `mitre-ingest` queue (pipelines/mitreQueue.ts) to
+// individually re-check against MITRE's public single-record endpoint —
+// replacing the old, removed full MITRE delta re-ingest (adapters/mitre.ts
+// used to call MITRE's Secretariat/Bulk-Download-only LIST endpoint, which
+// returns HTTP 400 for public callers and was never actually working in
+// production; its records, had they been written, would also have
+// overwritten NVD's superior description/CVSS/CPE data — see
+// adapters/mitre.ts's header comment).
+//
+// A live-verified planner investigation (2026-10-30, see
+// docs/EXECUTION_PLAN.md) found NVD's own `weaknesses[]` parsing
+// (adapters/nvd.ts) already surfaces essentially every CWE MITRE's CNA+ADP
+// containers carry; the one genuine, recoverable gap is a CNA that wrote a
+// CWE as free text in a description field with no structured `cweId` NVD
+// could pick up — rare enough that a capped, narrow lookup (not a full
+// re-ingest) is the right shape.
+//
+// MITRE_LOOKUP_MAX_PER_RUN caps a pathological 48h delta with an unusually
+// large zero-CWE fraction (observed: mostly Linux kernel CNA submissions,
+// which don't assign CWEs at all) from blowing past Cloudflare Queues'
+// sendBatch limits or ballooning mitre-ingest consumer traffic. Anything
+// over the cap is counted and logged (ANALYTICS 'LOOKUP_CAP_EXCEEDED'),
+// never silently truncated.
+const MITRE_LOOKUP_MAX_PER_RUN = 1000;
+const MITRE_QUEUE_CHUNK_SIZE = 20;
+// Cloudflare Queues' sendBatch() caps at 100 messages per call. At
+// MITRE_LOOKUP_MAX_PER_RUN(1000)/MITRE_QUEUE_CHUNK_SIZE(20) = 50 messages
+// max, one call always suffices today; this loop is purely defensive
+// against either constant changing later (same reasoning as OSV's
+// discovery sendBatch loop in pipelines/osv.ts).
+const QUEUES_SENDBATCH_MAX_MESSAGES = 100;
+
 /**
  * Daily full delta (cron: 0 1 * * *).
  * 1. NVD CVE 2.0 — all CVEs modified in last 48 h
- * 2. MITRE CVE List v5 — supplement CWEs for MITRE-sourced CVEs
+ * 2. MITRE CWE gap-fill — re-check NVD records with zero CWEs against
+ *    MITRE's public single-record endpoint for a free-text-only CWE NVD's
+ *    own parsing can't recover (narrow supplement, not a record source)
  * 3. FIRST EPSS daily CSV — update exploitability scores for all CVEs
  */
 export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promise<void> {
@@ -103,6 +138,12 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
   let nvdFailed = 0;
   let nvdError: string | undefined;
 
+  // MITRE CWE gap-fill collection — pure in-memory, filled inside the NVD
+  // loop below, enqueued onto MITRE_QUEUE after the loop finishes. Adds
+  // ZERO new D1 queries to this loop (see MITRE_LOOKUP_MAX_PER_RUN above).
+  const cweGapCveIds: string[] = [];
+  let cweGapOverCap = 0;
+
   let nvdBatch: NormalizedCveRecord[] = [];
   let nvdBatchBytes = 0;
   const flushNvdBatch = async () => {
@@ -124,6 +165,19 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
 
   try {
     for await (const record of fetchNvdDelta(env.NVD_API_KEY, startDate, endDate)) {
+      // Defense in depth: mitreQueue.ts's consumer re-validates every id
+      // before building a fetch URL (the gate that actually matters), but
+      // filtering here too — before anything reaches the queue at all —
+      // matches this codebase's own osv.ts precedent (OSV_ID_ALLOW is
+      // checked before enqueueing, not just before fetching).
+      if (record.cwes.length === 0 && CVE_ID_SHAPE.test(record.cveId)) {
+        if (cweGapCveIds.length < MITRE_LOOKUP_MAX_PER_RUN) {
+          cweGapCveIds.push(record.cveId);
+        } else {
+          cweGapOverCap++;
+        }
+      }
+
       const recordBytes = new TextEncoder().encode(JSON.stringify(record)).length;
 
       if (recordBytes + NVD_MESSAGE_WRAPPER_OVERHEAD_BYTES > NVD_QUEUE_MAX_BYTES) {
@@ -167,31 +221,47 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
     nvdError,
   );
 
-  // ── MITRE ─────────────────────────────────────────────────────────────────
-  let mitreProcessed = 0;
+  // ── MITRE (CWE gap-fill) ─────────────────────────────────────────────────
+  // Enqueue-only, same shape as NVD/EPSS above: this reports the ENQUEUE
+  // outcome (did every collected CVE ID make it onto MITRE_QUEUE), not a
+  // D1-write outcome — the actual D1 work happens later in
+  // pipelines/mitreQueue.ts's consumer, outside this cron run's visibility.
+  let mitreEnqueued = 0;
   let mitreFailed = 0;
   let mitreError: string | undefined;
 
-  try {
-    for await (const record of fetchMitreDelta(startDate, endDate)) {
+  if (cweGapOverCap > 0) {
+    env.ANALYTICS.writeDataPoint({
+      blobs: ['MITRE_PRODUCER', 'LOOKUP_CAP_EXCEEDED', String(cweGapOverCap), '', '', '', ''],
+      doubles: [cweGapOverCap, 0, 0, 0, 0],
+      indexes: ['ingest_warn'],
+    });
+  }
+
+  if (cweGapCveIds.length > 0) {
+    const messages: { body: MitreCweQueueMessage }[] = [];
+    for (let i = 0; i < cweGapCveIds.length; i += MITRE_QUEUE_CHUNK_SIZE) {
+      messages.push({ body: { cveIds: cweGapCveIds.slice(i, i + MITRE_QUEUE_CHUNK_SIZE) } });
+    }
+
+    for (let i = 0; i < messages.length; i += QUEUES_SENDBATCH_MAX_MESSAGES) {
+      const slice = messages.slice(i, i + QUEUES_SENDBATCH_MAX_MESSAGES);
       try {
-        await processRecord(record, env, ctx);
-        mitreProcessed++;
-      } catch {
-        mitreFailed++;
+        await env.MITRE_QUEUE.sendBatch(slice);
+        mitreEnqueued += slice.reduce((n, m) => n + m.body.cveIds.length, 0);
+      } catch (err) {
+        mitreFailed += slice.reduce((n, m) => n + m.body.cveIds.length, 0);
+        mitreError = String(err);
       }
     }
-  } catch (err) {
-    mitreError = String(err);
-    mitreFailed++;
   }
 
   await markIngestFinished(
     env,
     'MITRE',
-    mitreError ? 'FAILED' : mitreFailed > 0 ? 'PARTIAL' : 'OK',
-    mitreProcessed,
-    mitreFailed,
+    mitreError ? (mitreEnqueued > 0 ? 'PARTIAL' : 'FAILED') : cweGapOverCap > 0 ? 'PARTIAL' : 'OK',
+    mitreEnqueued,
+    mitreFailed + cweGapOverCap,
     mitreError,
   );
 
@@ -267,7 +337,7 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
         doubles: [
           startedAt,
           Date.now(),
-          nvdProcessed + mitreProcessed + epssProcessed,
+          nvdProcessed + mitreEnqueued + epssProcessed,
           nvdFailed + mitreFailed + epssFailed,
           Date.now() - startedAt,
         ],

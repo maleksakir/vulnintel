@@ -1,6 +1,11 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import type { EpssQueueMessage, NvdQueueMessage, RetryMessage } from '@threat-lens/contracts';
-import { describe, expect, it, vi } from 'vitest';
+import type {
+  EpssQueueMessage,
+  MitreCweQueueMessage,
+  NvdQueueMessage,
+  RetryMessage,
+} from '@threat-lens/contracts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import {
   makeRecord,
@@ -41,6 +46,10 @@ function makeBatch<T>(queueName: string, messages: FakeMessage<T>[]): MessageBat
 
 describe('index.ts queue() dispatch', () => {
   useCleanBindings();
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it('routes an "epss-ingest" batch to the EPSS consumer path (applyEpssPatchBatch), not the RetryMessage path', async () => {
     const cveId = 'CVE-2026-70001';
@@ -167,6 +176,104 @@ describe('index.ts queue() dispatch', () => {
 
     expect(msg.ack).toHaveBeenCalledTimes(1);
     expect(msg.retry).not.toHaveBeenCalled();
+  });
+
+  it('routes a "mitre-ingest" batch to the MITRE CWE consumer path (runMitreCweConsumer), not the RetryMessage/NVD/EPSS path', async () => {
+    const cveId = 'CVE-2026-70030';
+    await seedCveRow({ cveId });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              cveMetadata: { state: 'PUBLISHED' },
+              containers: {
+                cna: { problemTypes: [{ descriptions: [{ description: 'CWE-79 XSS' }] }] },
+              },
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const mitreBody: MitreCweQueueMessage = { cveIds: [cveId] };
+    const msg = makeMessage(mitreBody);
+    const batch = makeBatch('mitre-ingest', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+
+    const row = await testEnv.DB.prepare('SELECT cwe_id FROM cve_cwe WHERE cve_id = ?')
+      .bind(cveId)
+      .first<{ cwe_id: string }>();
+    expect(row?.cwe_id).toBe('CWE-79');
+
+    // If this had wrongly fallen through to the RetryMessage/processRecord
+    // path, `body.normalizedRecord` would be undefined and processRecord
+    // would throw before writing anything — the cve row's description
+    // (never touched by runMitreCweConsumer) stays at its seeded value.
+    const cveRow = await testEnv.DB.prepare('SELECT description FROM cve WHERE cve_id = ?')
+      .bind(cveId)
+      .first<{ description: string }>();
+    expect(cveRow?.description).toBe('seed description');
+  });
+
+  it('routes a "mitre-ingest-staging" batch to the MITRE CWE consumer too (the -staging suffix variant)', async () => {
+    const cveId = 'CVE-2026-70031';
+    await seedCveRow({ cveId });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('not found', { status: 404 })),
+    );
+
+    const mitreBody: MitreCweQueueMessage = { cveIds: [cveId] };
+    const msg = makeMessage(mitreBody);
+    const batch = makeBatch('mitre-ingest-staging', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+  });
+
+  it('acks (does not retry) a mitre-ingest message with a malformed body, without ever landing in the RetryMessage/processRecord path', async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const msg = makeMessage({} as unknown as MitreCweQueueMessage);
+    const batch = makeBatch('mitre-ingest', [msg]);
+
+    await worker.queue(batch, testEnv, createExecutionContext());
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('retries (does not ack) a mitre-ingest message whose MITRE fetch fails with a 500', async () => {
+    const cveId = 'CVE-2026-70032';
+    await seedCveRow({ cveId });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('boom', { status: 500 })),
+    );
+
+    const mitreBody: MitreCweQueueMessage = { cveIds: [cveId] };
+    const msg = makeMessage(mitreBody);
+    const batch = makeBatch('mitre-ingest', [msg]);
+
+    await worker.queue(batch, testEnv, createExecutionContext());
+
+    expect(msg.retry).toHaveBeenCalledTimes(1);
+    expect(msg.ack).not.toHaveBeenCalled();
   });
 
   it('routes a "cve-ingest-retry" batch to the RetryMessage/processRecord path (writes a full cve row), not the EPSS consumer', async () => {

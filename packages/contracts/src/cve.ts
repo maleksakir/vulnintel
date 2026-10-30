@@ -97,6 +97,19 @@ export interface EpssQueueMessage {
   patches: EpssPatch[];
 }
 
+/** mitre-ingest queue message shape — one bounded chunk of CVE IDs that an
+ *  NVD record was seen with zero CWEs (`record.cwes.length === 0`),
+ *  collected by `pipelines/daily.ts`'s NVD producer loop and consumed by
+ *  `pipelines/mitreQueue.ts`, which re-checks each one against MITRE's
+ *  public single-record endpoint for a free-text-only CWE NVD's own
+ *  parsing can't recover (see adapters/mitre.ts). Deliberately NOT a
+ *  NormalizedCveRecord-shaped message — this path only ever writes CWE
+ *  rows (cwe/cve_cwe/cve_source_provenance), never cve/cve_state, see
+ *  pipelines/mitreQueue.ts. */
+export interface MitreCweQueueMessage {
+  cveIds: string[];
+}
+
 /** NVD queue message shape — one bounded batch of NormalizedCveRecords from
  *  a day's 48h NVD delta window, produced by `pipelines/daily.ts` and
  *  consumed by `pipelines/nvdQueue.ts`.
