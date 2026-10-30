@@ -1,5 +1,5 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import type { EpssQueueMessage, RetryMessage } from '@threat-lens/contracts';
+import type { EpssQueueMessage, NvdQueueMessage, RetryMessage } from '@threat-lens/contracts';
 import { describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
 import {
@@ -108,6 +108,60 @@ describe('index.ts queue() dispatch', () => {
     // rather than retried into the DLQ (see pipelines/epssQueue.ts).
     const msg = makeMessage({} as unknown as EpssQueueMessage);
     const batch = makeBatch('epss-ingest', [msg]);
+
+    await worker.queue(batch, testEnv, createExecutionContext());
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+  });
+
+  it('routes an "nvd-ingest" batch to the NVD consumer path (runNvdConsumer → processRecord), not the RetryMessage/EPSS path', async () => {
+    spyOnBindings(); // AI has no local simulator — stub it the same way the cve-ingest-retry test below does
+    const record = makeRecord({ cveId: 'CVE-2026-70020' });
+    const nvdBody: NvdQueueMessage = { records: [record] };
+    const msg = makeMessage(nvdBody);
+    const batch = makeBatch('nvd-ingest', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+
+    const row = await testEnv.DB.prepare('SELECT description, severity FROM cve WHERE cve_id = ?')
+      .bind(record.cveId)
+      .first<{ description: string; severity: string }>();
+    expect(row).toEqual({ description: record.description, severity: record.severity });
+  });
+
+  it('routes an "nvd-ingest-staging" batch to the NVD consumer too (the -staging suffix variant)', async () => {
+    spyOnBindings();
+    const record = makeRecord({ cveId: 'CVE-2026-70021' });
+    const nvdBody: NvdQueueMessage = { records: [record] };
+    const msg = makeMessage(nvdBody);
+    const batch = makeBatch('nvd-ingest-staging', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+
+    const row = await testEnv.DB.prepare('SELECT description FROM cve WHERE cve_id = ?')
+      .bind(record.cveId)
+      .first<{ description: string }>();
+    expect(row?.description).toBe(record.description);
+  });
+
+  it('acks (does not retry) an nvd-ingest message with a malformed body, without ever landing in the RetryMessage/processRecord path', async () => {
+    // Missing `records` — runNvdConsumer's own shape validation catches this
+    // before calling processRecord; a malformed message can never succeed no
+    // matter how many times it's retried, so it's dropped (acked) rather
+    // than retried into the DLQ (see pipelines/nvdQueue.ts).
+    const msg = makeMessage({} as unknown as NvdQueueMessage);
+    const batch = makeBatch('nvd-ingest', [msg]);
 
     await worker.queue(batch, testEnv, createExecutionContext());
 

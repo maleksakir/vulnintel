@@ -1,4 +1,9 @@
-import type { EpssPatch, KevPatch, NormalizedCveRecord } from '@threat-lens/contracts';
+import type {
+  EpssPatch,
+  KevPatch,
+  NormalizedCveRecord,
+  SsvcDecision,
+} from '@threat-lens/contracts';
 import type { Env } from '../../types';
 import { buildEmbedText, embed } from './embed';
 import { computeStateHash, computeTextHash } from './hash';
@@ -9,6 +14,9 @@ interface CurrentRow {
   kev_listed: number;
   epss_score: number | null;
   epss_percentile: number | null;
+  ssvc_exploitation: string | null;
+  ssvc_automatable: string | null;
+  ssvc_technical_impact: string | null;
 }
 
 export interface ProcessOptions {
@@ -44,7 +52,10 @@ export async function processRecord(
     `SELECT c.text_hash, c.state_hash,
             COALESCE(s.kev_listed, 0)    AS kev_listed,
             s.epss_score,
-            s.epss_percentile
+            s.epss_percentile,
+            s.ssvc_exploitation,
+            s.ssvc_automatable,
+            s.ssvc_technical_impact
      FROM cve c
      LEFT JOIN cve_state s USING (cve_id)
      WHERE c.cve_id = ?`,
@@ -69,7 +80,37 @@ export async function processRecord(
   const forceAll = opts.opType === 'UPSERT_ALL';
   const forceVec = opts.opType === 'VECTORIZE_ONLY';
 
+  // SSVC is deliberately NOT folded into text_hash or state_hash (both have
+  // fixed, documented purposes — see hash.ts and docs/spec/03-system-
+  // blueprints.md) — it gets its own change-detection guard, the same shape
+  // as applyKevPatch's own comparison below. Compared field-by-field against
+  // only the enum values, NEVER record.ssvc's decidedAt timestamp: CISA can
+  // re-stamp the identical decision with a new timestamp, and that alone
+  // must not count as a change (every re-ingest would otherwise needlessly
+  // rewrite cve_state). An incoming null/undefined field means "this
+  // ingest pass has no opinion," not "change it to null" — only a concrete
+  // incoming value that differs from what's stored counts.
+  const incomingSsvc = record.ssvc ?? null;
+  const ssvcChanged =
+    (incomingSsvc?.exploitation != null &&
+      incomingSsvc.exploitation !== (cur?.ssvc_exploitation ?? null)) ||
+    (incomingSsvc?.automatable != null &&
+      incomingSsvc.automatable !== (cur?.ssvc_automatable ?? null)) ||
+    (incomingSsvc?.technicalImpact != null &&
+      incomingSsvc.technicalImpact !== (cur?.ssvc_technical_impact ?? null));
+
   if (!textChanged && !stateChanged && !forceAll && !forceVec) {
+    if (ssvcChanged) {
+      // Text/state unchanged but SSVC is new/different: one additional
+      // single-row cve_state upsert, nothing else — no KV delete (the
+      // existing cve:{id} cache TTL is short enough already, per this
+      // function's own invalidation elsewhere), no Vectorize call, no AI
+      // call. Zero extra D1 reads: `cur` above already carries everything
+      // needed.
+      await applySsvcOnly(record.cveId, incomingSsvc, env);
+      emitAnalytics(env, record, 'SSVC', forceAll, t0, kevListed, epssScore, epssPercentile);
+      return;
+    }
     emitAnalytics(env, record, 'SKIP', forceAll, t0, kevListed, epssScore, epssPercentile);
     return;
   }
@@ -156,7 +197,16 @@ export async function processRecord(
     // No existing vector → Vectorize will be backfilled on the next daily run.
   }
 
-  ctx.waitUntil(env.CACHE.delete(`cve:${record.cveId}`));
+  // Only issue the KV delete when a prior record existed. A brand-new CVE
+  // (!cur) was never cached under `cve:{id}` to begin with — there is
+  // nothing to invalidate, so the delete is pure waste. At realistic
+  // new-CVE volume (hundreds/day once NVD ingestion actually lands records
+  // — see nvdQueue.ts) this alone could consume a meaningful share of the
+  // 1,000/day KV write+delete cap, the same shape as the 2026-10-27
+  // incident documented in CLAUDE.md.
+  if (cur) {
+    ctx.waitUntil(env.CACHE.delete(`cve:${record.cveId}`));
+  }
 
   emitAnalytics(
     env,
@@ -168,6 +218,35 @@ export async function processRecord(
     epssScore,
     epssPercentile,
   );
+}
+
+// ── SSVC-only patch ──────────────────────────────────────────────────────────
+// Used only from the "text/state unchanged but SSVC is new/different" branch
+// above. `ON CONFLICT ... COALESCE(excluded.x, x)` means an incoming null
+// field (already filtered out of `ssvcChanged` above, but still possible on
+// the other two fields of the same incomingSsvc) never clears a previously
+// stored value — same contract as writeD1's cve_state upsert below.
+async function applySsvcOnly(cveId: string, ssvc: SsvcDecision | null, env: Env): Promise<void> {
+  await env.DB.prepare(
+    `INSERT INTO cve_state
+       (cve_id, kev_listed, ssvc_exploitation, ssvc_automatable, ssvc_technical_impact, ssvc_updated_at, state_updated_at)
+     VALUES (?, 0, ?, ?, ?, ?, ?)
+     ON CONFLICT (cve_id) DO UPDATE SET
+       ssvc_exploitation      = COALESCE(excluded.ssvc_exploitation, ssvc_exploitation),
+       ssvc_automatable       = COALESCE(excluded.ssvc_automatable, ssvc_automatable),
+       ssvc_technical_impact  = COALESCE(excluded.ssvc_technical_impact, ssvc_technical_impact),
+       ssvc_updated_at        = COALESCE(excluded.ssvc_updated_at, ssvc_updated_at),
+       state_updated_at       = excluded.state_updated_at`,
+  )
+    .bind(
+      cveId,
+      ssvc?.exploitation ?? null,
+      ssvc?.automatable ?? null,
+      ssvc?.technicalImpact ?? null,
+      ssvc?.decidedAt ?? null,
+      Date.now(),
+    )
+    .run();
 }
 
 // ── KEV patch ──────────────────────────────────────────────────────────────
@@ -401,18 +480,40 @@ async function writeD1(
         stateHash,
         now,
       ),
-    // cve_state — preserve existing kev fields
+    // cve_state — preserve existing kev fields. SSVC columns use the same
+    // COALESCE(excluded.x, x) contract as epss_score/epss_percentile below:
+    // an incoming null (record.ssvc absent, or this ingest pass has no
+    // opinion on one of the three fields) means "no new info," never
+    // "clear the stored value" — same reasoning applySsvcOnly above
+    // documents. Zero extra statements: this is the SAME upsert
+    // text/state-changed writes already made, just two more columns on it.
     db
       .prepare(
         `INSERT INTO cve_state
-         (cve_id, kev_listed, epss_score, epss_percentile, state_updated_at)
-       VALUES (?, ?, ?, ?, ?)
+         (cve_id, kev_listed, epss_score, epss_percentile,
+          ssvc_exploitation, ssvc_automatable, ssvc_technical_impact, ssvc_updated_at,
+          state_updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (cve_id) DO UPDATE SET
-         epss_score       = COALESCE(excluded.epss_score, epss_score),
-         epss_percentile  = COALESCE(excluded.epss_percentile, epss_percentile),
-         state_updated_at = excluded.state_updated_at`,
+         epss_score             = COALESCE(excluded.epss_score, epss_score),
+         epss_percentile        = COALESCE(excluded.epss_percentile, epss_percentile),
+         ssvc_exploitation      = COALESCE(excluded.ssvc_exploitation, ssvc_exploitation),
+         ssvc_automatable       = COALESCE(excluded.ssvc_automatable, ssvc_automatable),
+         ssvc_technical_impact  = COALESCE(excluded.ssvc_technical_impact, ssvc_technical_impact),
+         ssvc_updated_at        = COALESCE(excluded.ssvc_updated_at, ssvc_updated_at),
+         state_updated_at       = excluded.state_updated_at`,
       )
-      .bind(record.cveId, kevListed ? 1 : 0, epssScore, epssPercentile, now),
+      .bind(
+        record.cveId,
+        kevListed ? 1 : 0,
+        epssScore,
+        epssPercentile,
+        record.ssvc?.exploitation ?? null,
+        record.ssvc?.automatable ?? null,
+        record.ssvc?.technicalImpact ?? null,
+        record.ssvc?.decidedAt ?? null,
+        now,
+      ),
     // provenance
     db
       .prepare(

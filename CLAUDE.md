@@ -68,7 +68,11 @@ Data flow: `ingest` cron → D1 (source of truth) + Vectorize (semantic search) 
   message gets its own fresh 50-query budget); the surviving inline SELECT
   is chunked at the 100-param cap regardless of caller
   (`apps/ingest/src/lib/server/processRecord.ts`). Deployed 2026-10-29, see
-  `docs/EXECUTION_PLAN.md`'s Phase 0 table for status.
+  `docs/EXECUTION_PLAN.md`'s Phase 0 table for status. **Confirmed repeat
+  pattern:** `apps/ingest`'s NVD path hit this identical bug independently
+  (found/fixed 2026-10-30, same inline-per-record-in-one-cron shape, same
+  producer/consumer fix) — treat this as the default failure mode for any
+  future inline per-record ingest code, not a one-off.
 - **Cloudflare Queues' 10,000-operations/day allowance (Workers Free plan) is
   one pool shared account-wide, not per-queue** — a write, a read, and a
   delete each count as a separate operation (so one message ≈ 3 operations,

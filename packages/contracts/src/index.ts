@@ -43,6 +43,7 @@ export type {
   KevPatch,
   NormalizedCpe,
   NormalizedCveRecord,
+  NvdQueueMessage,
   OsvAffectedPackage,
   OsvFetchItem,
   OsvPatch,
@@ -51,6 +52,7 @@ export type {
   OsvRangeEvent,
   RetryMessage,
   Severity,
+  SsvcDecision,
 } from './cve.js';
 
 export type { EmbedFn } from './embed.js';

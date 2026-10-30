@@ -1,10 +1,11 @@
-import type { EpssQueueMessage, RetryMessage } from '@threat-lens/contracts';
+import type { EpssQueueMessage, NvdQueueMessage, RetryMessage } from '@threat-lens/contracts';
 import { processRecord } from './lib/server/processRecord';
 import { runAgingSweep } from './pipelines/aging';
 import { runDailyFullDelta } from './pipelines/daily';
 import { runEpssConsumer } from './pipelines/epssQueue';
 import { runIpListPrune } from './pipelines/iplist';
 import { runKevFastLane } from './pipelines/kev';
+import { runNvdConsumer } from './pipelines/nvdQueue';
 import { isValidOsvQueueMessage, runOsvDiscovery, runOsvFetchBatch } from './pipelines/osv';
 import { runWeeklyReconciliation } from './pipelines/reconcile';
 import type { Env } from './types';
@@ -56,6 +57,12 @@ export default {
    *   got its own traffic (see wrangler.toml's staging section).
    *   max_retries=3 → exhausted messages land in epss-ingest-dlq.
    *
+   * `nvd-ingest` (+ `nvd-ingest-staging`): one message = one small bounded
+   *   batch of NormalizedCveRecords from a day's NVD delta, produced by
+   *   pipelines/daily.ts. A malformed body is acked (dropped), not retried —
+   *   same reasoning as the epss-ingest malformed-message branch below.
+   *   max_retries=3 → exhausted messages land in nvd-ingest-dlq.
+   *
    * `osv-ingest` (+ `osv-ingest-staging`): carries both the daily
    *   OSV_DISCOVER kick-off (from pipelines/daily.ts) and the per-record
    *   OSV_FETCH work items it produces (from pipelines/osv.ts's own
@@ -75,6 +82,18 @@ export default {
       for (const msg of batch.messages) {
         try {
           await runEpssConsumer(msg.body as EpssQueueMessage, env, ctx);
+          msg.ack();
+        } catch {
+          msg.retry();
+        }
+      }
+      return;
+    }
+
+    if (batch.queue.startsWith('nvd-ingest')) {
+      for (const msg of batch.messages) {
+        try {
+          await runNvdConsumer(msg.body as NvdQueueMessage, env, ctx);
           msg.ack();
         } catch {
           msg.retry();

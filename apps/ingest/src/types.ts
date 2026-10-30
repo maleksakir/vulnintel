@@ -1,4 +1,9 @@
-import type { EpssQueueMessage, OsvQueueMessage, RetryMessage } from '@threat-lens/contracts';
+import type {
+  EpssQueueMessage,
+  NvdQueueMessage,
+  OsvQueueMessage,
+  RetryMessage,
+} from '@threat-lens/contracts';
 
 /** Cloudflare bindings for the ingest worker — must match wrangler.toml exactly. */
 export interface Env {
@@ -18,6 +23,12 @@ export interface Env {
   // instead of writing them to D1 inline; pipelines/epssQueue.ts's consumer
   // does the actual D1 work, one message per invocation (see wrangler.toml).
   EPSS_QUEUE: Queue<EpssQueueMessage>;
+  // NVD queue producer — daily.ts's NVD section enqueues fetched,
+  // size-aware-batched NormalizedCveRecords here instead of calling
+  // processRecord() inline; pipelines/nvdQueue.ts's consumer does the
+  // actual processRecord()/D1/Vectorize/AI work, one small bounded batch
+  // per invocation (see wrangler.toml).
+  NVD_QUEUE: Queue<NvdQueueMessage>;
   // OSV queue producer — carries both the lightweight daily OSV_DISCOVER
   // kick-off (sent from daily.ts, since OSV can't get its own Cron Trigger —
   // all 5 Workers Free slots are already used) and the per-record

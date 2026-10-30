@@ -93,6 +93,30 @@ max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "epss-ingest-dlq"
 
+# NVD queue. NVD's 48h delta is variable (hundreds to low-thousands of
+# modified records per window, not a fixed daily snapshot like EPSS's
+# 250k-row CSV) and each CHANGED record's processRecord() call costs up to
+# ~5 D1 queries — far more per-record than EPSS's batched applyEpssPatchBatch
+# — so even a few dozen changed records would exhaust the single daily cron
+# invocation's 50-D1-query budget alongside NVD+MITRE+EPSS's other work.
+# pipelines/daily.ts now only fetches+size-aware-batches+enqueues onto this
+# queue; pipelines/nvdQueue.ts's consumer does the actual processRecord()
+# work, one small bounded batch (see NVD_QUEUE_MAX_RECORDS/NVD_QUEUE_MAX_BYTES
+# in daily.ts — up to 8 records, well under the 128KB message cap) per
+# invocation. max_batch_size = 1 keeps that one-message-per-invocation
+# guarantee exact, so each consumer invocation's D1 query count stays
+# predictable (at most 8 × 5 = 40, comfortably under 50).
+[[queues.producers]]
+queue = "nvd-ingest"
+binding = "NVD_QUEUE"
+
+[[queues.consumers]]
+queue = "nvd-ingest"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "nvd-ingest-dlq"
+
 # OSV (GHSA) queue. Carries both the lightweight daily OSV_DISCOVER kick-off
 # (sent from pipelines/daily.ts's 01:00 UTC cron — all 5 Workers Free Cron
 # Trigger slots are already used, so OSV can't get its own) and the
@@ -180,6 +204,19 @@ max_batch_size = 1
 max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "epss-ingest-dlq-staging"
+
+# Isolated from production's nvd-ingest queue for the same reason as
+# epss-ingest-staging above.
+[[env.staging.queues.producers]]
+queue = "nvd-ingest-staging"
+binding = "NVD_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "nvd-ingest-staging"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "nvd-ingest-dlq-staging"
 
 # Isolated from production's osv-ingest queue for the same reason as
 # epss-ingest-staging above.

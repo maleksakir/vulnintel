@@ -44,6 +44,26 @@ A record that fails normalization is written to `cve_quarantine` with the
 raw payload and the parser error. The adapter does **not** throw on a
 single bad record; it returns the good records and the quarantine list.
 
+> **Drift flag (2026-10-30, `docs-writer`):** the table above describes the
+> `mitre` adapter's input as "MITRE CVE List v5 commit diff, GitHub raw
+> content" that "deduplicates against NVD when both produce the same id."
+> The code at `apps/ingest/src/adapters/mitre.ts` does neither: it calls the
+> live `cveawg.mitre.org/api/cve` REST endpoint (not a GitHub commit diff)
+> with query parameters (`time_modified.start`/`.end`, `pageSize`,
+> `pageNumber`) and reads a top-level `cveId` field from each response
+> record — neither matches that API's actual contract — and performs no
+> NVD-dedup step anywhere in the adapter or its caller. It fails gracefully
+> (wrapped in `try`/`catch` in `pipelines/daily.ts`, never blocking NVD or
+> EPSS), but has likely produced zero MITRE-sourced CWE supplementation
+> since it was written. Found 2026-10-30 while investigating a separate,
+> unrelated NVD ingestion bug — see `docs/EXECUTION_PLAN.md`'s Phase 2
+> "MITRE adapter" row for the tracked item. Per this file's own convention,
+> this is reported, not resolved: whether the code should be rewritten to
+> match this section's intent (switch to the CVE List v5 GitHub repo, as
+> the "Explicitly not doing"/Phase roadmap context implies was the original
+> plan) or this section should be rewritten to describe whatever the
+> long-term MITRE approach ends up being is a `planner` decision.
+
 ### 5.1.3 Canonical record shape (`packages/contracts/src/cve.ts`)
 
 ```ts

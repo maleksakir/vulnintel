@@ -24,6 +24,25 @@ export interface NormalizedCpe {
   extras: Record<string, string>;
 }
 
+/** CISA ADP's SSVC decision for a CVE, parsed from NVD API 2.0's
+ *  `metrics.ssvcV203[]` (or a future `ssvcV\d+` tree version — see
+ *  apps/ingest/src/adapters/nvd.ts's extractSsvcDecision, matched by key
+ *  pattern rather than a hardcoded version string).
+ *
+ *  Each enum field is independently nullable: NVD's `options[]` array can
+ *  omit a decision point, or carry a value this type doesn't recognize yet
+ *  (future SSVC tree revisions can add options) — an unknown/unexpected
+ *  value becomes null rather than throwing. `decidedAt` is CISA's own
+ *  `ssvcData.timestamp` (parsed to unix ms, or null on a failed parse);
+ *  it is intentionally NEVER part of processRecord.ts's change-detection —
+ *  see that file's `ssvcChanged` comment. */
+export interface SsvcDecision {
+  exploitation: 'none' | 'poc' | 'active' | null;
+  automatable: 'yes' | 'no' | null;
+  technicalImpact: 'partial' | 'total' | null;
+  decidedAt: number | null; // unix ms
+}
+
 /** Canonical shape produced by the NVD and MITRE adapters. */
 export interface NormalizedCveRecord {
   cveId: string; // 'CVE-YYYY-NNNNN'
@@ -42,6 +61,14 @@ export interface NormalizedCveRecord {
   cwes: string[]; // ['CWE-79', 'CWE-89', …]
   cpes: NormalizedCpe[];
   references: { url: string; tags: string[] }[];
+  /** NVD-only (MITRE's adapter does not populate this — see
+   *  apps/ingest/src/adapters/mitre.ts, independently unfixed, out of
+   *  scope). Optional — not just nullable — because messages already
+   *  enqueued onto cve-ingest-retry before this field existed won't carry
+   *  it; processRecord.ts treats an absent field identically to an explicit
+   *  `null` (both mean "no new SSVC info," never "clear the stored
+   *  value"). */
+  ssvc?: SsvcDecision | null;
 }
 
 /** Patch shape produced by the CISA KEV adapter.
@@ -68,6 +95,21 @@ export interface EpssPatch {
  *  Queues' 128KB per-message cap (see EPSS_MESSAGE_CHUNK_SIZE in daily.ts). */
 export interface EpssQueueMessage {
   patches: EpssPatch[];
+}
+
+/** NVD queue message shape — one bounded batch of NormalizedCveRecords from
+ *  a day's 48h NVD delta window, produced by `pipelines/daily.ts` and
+ *  consumed by `pipelines/nvdQueue.ts`.
+ *
+ *  Unlike EpssQueueMessage, this batch is NOT sized by a fixed record count
+ *  alone: a single NormalizedCveRecord can carry up to 500 CPEs / 200
+ *  references (processRecord.ts's writeD1 caps) and measures ~200KB on its
+ *  own in that worst case — already over Cloudflare Queues' 128KB
+ *  per-message cap by itself. `daily.ts`'s producer tracks actual
+ *  serialized bytes per batch (not just a record-count cap) for this
+ *  reason; see NVD_QUEUE_MAX_RECORDS / NVD_QUEUE_MAX_BYTES there. */
+export interface NvdQueueMessage {
+  records: NormalizedCveRecord[];
 }
 
 // ── OSV (GHSA) ───────────────────────────────────────────────────────────

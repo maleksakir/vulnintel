@@ -94,14 +94,34 @@ export function spyOnBindings() {
   // Implemented by wrapping `prepare`'s return value rather than just
   // spying on `prepare` itself, since the param count lives on the
   // chained `.bind(...)` call, not on `prepare(sql)`.
+  //
+  // `queryCalls` records every STANDALONE `.first()`/`.run()`/`.all()`
+  // invocation on a bound statement — i.e. every D1 round trip that is NOT
+  // part of a `db.batch([...])` call. `db.batch()` sends every statement in
+  // its array as ONE combined request (that's the whole point of batching —
+  // the array members are never individually `.run()`/`.first()`'d), so
+  // this never double-counts batched statements; `queryCalls.length +
+  // dbBatch.mock.calls.length` is the real per-invocation D1
+  // query/subrequest count the 50-query Free-tier budget comments
+  // (processRecord.ts, daily.ts, nvdQueue.ts) reason about — see
+  // test/nvdQueueConsumer.test.ts's budget regression test.
   const boundCalls: { sql: string; paramCount: number }[] = [];
+  const queryCalls: { sql: string; method: 'first' | 'run' | 'all' }[] = [];
   const originalPrepare = testEnv.DB.prepare.bind(testEnv.DB);
   const dbPrepare = vi.spyOn(testEnv.DB, 'prepare').mockImplementation((sql: string) => {
     const stmt = originalPrepare(sql);
     const originalBind = stmt.bind.bind(stmt);
     vi.spyOn(stmt, 'bind').mockImplementation((...args: unknown[]) => {
       boundCalls.push({ sql, paramCount: args.length });
-      return originalBind(...(args as never[]));
+      const bound = originalBind(...(args as never[]));
+      for (const method of ['first', 'run', 'all'] as const) {
+        const original = bound[method].bind(bound);
+        vi.spyOn(bound, method).mockImplementation((...callArgs: unknown[]) => {
+          queryCalls.push({ sql, method });
+          return (original as (...a: unknown[]) => unknown)(...callArgs);
+        });
+      }
+      return bound;
     });
     return stmt;
   });
@@ -120,10 +140,12 @@ export function spyOnBindings() {
   return {
     ...spies,
     boundCalls,
+    queryCalls,
     /** Clears call history on every spy without discarding their mock implementations. */
     clearAll() {
       for (const spy of Object.values(spies)) spy.mockClear();
       boundCalls.length = 0;
+      queryCalls.length = 0;
     },
     /** SQL strings passed to `db.prepare`, in call order. */
     preparedSql(): string[] {

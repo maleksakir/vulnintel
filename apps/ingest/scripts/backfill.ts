@@ -39,6 +39,7 @@ import type {
 } from '@threat-lens/contracts';
 import { fetchEpssCsv } from '../src/adapters/epss';
 import { fetchKevCatalog } from '../src/adapters/kev';
+import { extractSsvcDecision } from '../src/adapters/nvd';
 import { applyEpssPatchBatch, applyKevPatch, processRecord } from '../src/lib/server/processRecord';
 
 // 200 is safe regardless of applyEpssPatchBatch's internal 100-bound-param
@@ -321,6 +322,10 @@ function normalizeNvdCve(cve: NvdCve): NormalizedCveRecord | null {
     cwes: [...new Set(cwes)],
     cpes,
     references,
+    // Shared with adapters/nvd.ts's normalizeNvdCve — see that module's
+    // extractSsvcDecision doc comment for why this is a shared exported
+    // helper rather than duplicated here.
+    ssvc: extractSsvcDecision(cve.metrics),
   };
 }
 
