@@ -130,15 +130,26 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
       );
     }
 
-    // Invalidate dashboard KPI cache keys.
-    ctx.waitUntil(
-      Promise.all([
-        env.CACHE.delete('dash:kpi:total'),
-        env.CACHE.delete('dash:kpi:severity'),
-        env.CACHE.delete('dash:kpi:kev'),
-        env.CACHE.delete('dash:kpi:epss'),
-      ]),
-    );
+    // Invalidate the dashboard metrics cache. The app worker caches
+    // getMetrics() output under `dash:metrics:<window>` (see
+    // apps/app/src/routes/api/metrics/[window]/+server.ts and the homepage
+    // +page.server.ts — both share these exact keys). A previous version of
+    // this sweep deleted `dash:kpi:total|severity|kev|epss` instead, which
+    // are keys NOTHING ever writes — so the real metrics cache was never
+    // event-invalidated and relied solely on its 300s TTL, and the four
+    // deletes were pure waste against the 1,000/day KV write+delete cap.
+    // Only invalidate when the sweep actually changed the corpus (deleted
+    // aged-out CVEs); a no-op run must not burn KV deletes 4x/day for
+    // nothing — same skip-if-unchanged discipline the rest of ingest uses.
+    if (agedOut > 0) {
+      ctx.waitUntil(
+        Promise.all(
+          (['1h', '24h', '7d', '30d', '90d'] as const).map((w) =>
+            env.CACHE.delete(`dash:metrics:${w}`),
+          ),
+        ),
+      );
+    }
   } catch (err) {
     lastError = String(err);
   }
