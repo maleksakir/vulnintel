@@ -68,6 +68,12 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
       env.DB.prepare('DELETE FROM search_quota_ip_ledger WHERE bucket < ?').bind(quotaCutoffDay),
       env.DB.prepare('DELETE FROM audit_log WHERE occurred_at < ?').bind(auditCutoffMs),
       env.DB.prepare('DELETE FROM cve_quarantine WHERE quarantined_at < ?').bind(auditCutoffMs),
+      // Long-expired risk acceptances (Phase 4 remediation). An acceptance
+      // auto-reactivates the instant it expires (derived read), so an expired
+      // row is purely a historical audit record — keep it for the same 90-day
+      // window as audit_log, then prune. `IF NOT EXISTS`-created table (0012);
+      // a plain DELETE is a no-op if the table somehow isn't there yet.
+      env.DB.prepare('DELETE FROM cve_risk_acceptance WHERE expires_at < ?').bind(auditCutoffMs),
     ]);
 
     // Rebuild cpe_search FTS after bulk delete (one-shot cheaper than

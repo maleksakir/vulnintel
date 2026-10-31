@@ -274,6 +274,45 @@ export function validateCreateSubscription(
   return { ok: true, value: { vendor, product } };
 }
 
+export function validateAcceptRisk(
+  body: unknown,
+  now: number = Date.now(),
+): Validated<{ justification: string; expiresAtMs: number; acceptedBy: string | null }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+
+  const justification = typeof b.justification === 'string' ? b.justification.trim() : '';
+  if (justification.length < 1 || justification.length > NOTE_MAX) {
+    errors.justification = `Must be a string of 1–${NOTE_MAX} characters (a written reason is mandatory)`;
+  }
+
+  // Expiry is mandatory (DefectDojo model) and must be in the future.
+  let expiresAtMs = Number.NaN;
+  if (typeof b.expiresAt !== 'string' || Number.isNaN(Date.parse(b.expiresAt))) {
+    errors.expiresAt = 'Must be a valid ISO 8601 date-time';
+  } else {
+    expiresAtMs = Date.parse(b.expiresAt);
+    if (expiresAtMs <= now) {
+      errors.expiresAt = 'Must be in the future (risk acceptance cannot be open-ended)';
+    }
+  }
+
+  let acceptedBy: string | null = null;
+  if (b.acceptedBy !== undefined && b.acceptedBy !== null) {
+    if (typeof b.acceptedBy !== 'string' || b.acceptedBy.length > VENDOR_MAX) {
+      errors.acceptedBy = `Must be a string of at most ${VENDOR_MAX} characters`;
+    } else {
+      acceptedBy = b.acceptedBy.trim() || null;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  return { ok: true, value: { justification, expiresAtMs, acceptedBy } };
+}
+
 export function validateCreateAsset(
   body: unknown,
 ): Validated<{ name: string; description?: string }> {

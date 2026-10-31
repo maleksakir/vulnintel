@@ -289,9 +289,11 @@
           </thead>
           <tbody>
             {#each wl.matches as m (m.cveId)}
-              <tr>
+              <tr class:row-accepted={m.riskAccepted}>
                 <td>
-                  {#if m.priorityBand}
+                  {#if m.riskAccepted}
+                    <span class="prio-badge prio-badge--accepted" title="Risk accepted (active)">ACCEPTED</span>
+                  {:else if m.priorityBand}
                     <span
                       class="prio-badge prio-badge--{m.priorityBand.toLowerCase()}"
                       title={m.priorityRationale ?? ''}
@@ -655,5 +657,13 @@
   .prio-badge--none {
     color: var(--color-text-tertiary);
     cursor: default;
+  }
+  .prio-badge--accepted {
+    background: var(--color-surface-overlay);
+    color: var(--color-text-tertiary);
+    cursor: help;
+  }
+  .row-accepted {
+    opacity: 0.55;
   }
 </style>

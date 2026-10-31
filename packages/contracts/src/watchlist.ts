@@ -52,6 +52,10 @@ export interface WatchlistMatch {
    *  that drove it (e.g. "KEV-listed; EPSS 97th pct; CVSS 9.8"). Not
    *  AI-generated. */
   priorityRationale: string | null;
+  /** True when this CVE currently has an ACTIVE risk acceptance (not expired).
+   *  The UI demotes accepted matches; it auto-clears when the acceptance
+   *  expires (see the remediation feature). */
+  riskAccepted: boolean;
 }
 
 /** Per-status match counts for a watchlist (list-view badges). */

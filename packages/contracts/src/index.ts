@@ -67,9 +67,13 @@ export type {
   Severity,
   SsvcDecision,
 } from './cve.js';
-
 export type { EmbedFn } from './embed.js';
 export { EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL } from './embed.js';
+export type {
+  AcceptRiskRequest,
+  RiskAcceptance,
+  RiskAcceptanceListResponse,
+} from './remediation.js';
 export type {
   CreateSubscriptionRequest,
   CreateWatchlistRequest,

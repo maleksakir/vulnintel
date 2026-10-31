@@ -9,6 +9,7 @@ import type {
   WatchlistWebhook,
 } from '@threat-lens/contracts';
 import { withPriority } from '../priority';
+import { getActivelyAcceptedCveIds } from './remediation';
 
 // Read-side queries for watchlists. All rows are materialized by the ingest
 // worker's reconciliation engine (watchlist_match); these are cheap indexed
@@ -230,6 +231,10 @@ export async function getWatchlistDetail(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
+  // Active risk acceptances demote matched CVEs in the UI; auto-clears on
+  // expiry (derived read, no cron). One small indexed read.
+  const accepted = await getActivelyAcceptedCveIds(db);
+
   const matches: WatchlistMatch[] = page.map((m) =>
     withPriority({
       cveId: m.cve_id,
@@ -241,6 +246,7 @@ export async function getWatchlistDetail(
       cvssBase: m.cvss_base,
       kevListed: m.kev_listed === 1,
       epssPercentile: m.epss_percentile,
+      riskAccepted: accepted.has(m.cve_id),
       // Filled by withPriority() below; placeholders keep the object shape.
       priorityScore: null,
       priorityBand: null,
