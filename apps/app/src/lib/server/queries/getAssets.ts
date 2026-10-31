@@ -6,6 +6,7 @@ import type {
   AssetMatchVia,
   AssetSummary,
 } from '@threat-lens/contracts';
+import { getActivelyAcceptedCveIds } from './remediation';
 
 // Asset read-side queries. Reads materialized asset_component_match rows
 // (populated at import time) joined to cve/cve_state — cheap indexed reads,
@@ -167,6 +168,9 @@ export async function getAssetDetail(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
+  // Flag CVEs under an active risk acceptance (one small indexed read).
+  const accepted = await getActivelyAcceptedCveIds(db);
+
   const cves: AssetCveRow[] = page.map((r) => ({
     cveId: r.cve_id,
     matchVia: r.match_via,
@@ -176,6 +180,7 @@ export async function getAssetDetail(
     epssPercentile: r.epss_percentile,
     componentName: r.component_name,
     componentVersion: r.component_version,
+    riskAccepted: accepted.has(r.cve_id),
   }));
 
   const cveCursor = hasMore ? btoa(String(offset + limit)) : null;

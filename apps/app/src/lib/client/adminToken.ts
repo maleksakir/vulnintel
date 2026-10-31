@@ -26,7 +26,7 @@ export function hasAdminToken(): boolean {
  *  throws an Error with the server's message (so callers can toast it). */
 export async function adminFetch(
   path: string,
-  method: 'POST' | 'PATCH' | 'DELETE',
+  method: 'POST' | 'PUT' | 'PATCH' | 'DELETE',
   body?: unknown,
 ): Promise<unknown> {
   const token = getAdminToken();

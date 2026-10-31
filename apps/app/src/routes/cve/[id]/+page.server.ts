@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { CveDetailResponse } from '@threat-lens/contracts';
 import { getCveDetail } from '$lib/server/queries/getCveDetail';
+import { getRiskAcceptance } from '$lib/server/queries/remediation';
 import type { PageServerLoad } from './$types';
 
 // Same `cve:<id>` key + 300s TTL as the /api/cve/[id] JSON route, so an SSR
@@ -33,10 +34,15 @@ export const load: PageServerLoad = async ({ params, platform }) => {
     error(400, { message: 'Invalid CVE ID format', code: 'VALIDATION_ERROR' });
   }
 
+  // Risk acceptance is small, mutable, and NOT part of the cached CVE detail,
+  // so fetch it directly every load (one indexed single-row read) — in both
+  // the cache-hit and cache-miss paths below.
+  const riskAcceptance = await getRiskAcceptance(db, cveId);
+
   const cacheKey = `cve:${cveId}`;
   if (env.CACHE) {
     const cached = await env.CACHE.get<CveDetailResponse>(cacheKey, 'json');
-    if (cached !== null) return { detail: cached };
+    if (cached !== null) return { detail: cached, riskAcceptance };
   }
 
   const detail = await getCveDetail(cveId, db);
@@ -50,5 +56,5 @@ export const load: PageServerLoad = async ({ params, platform }) => {
     );
   }
 
-  return { detail };
+  return { detail, riskAcceptance };
 };

@@ -65,6 +65,8 @@ export interface AssetCveRow {
   epssPercentile: number | null;
   componentName: string;
   componentVersion: string | null;
+  /** True when this CVE has an active risk acceptance (demoted in the UI). */
+  riskAccepted: boolean;
 }
 
 /** GET /api/assets/[id] — asset detail: components + a page of matched CVEs. */

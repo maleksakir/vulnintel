@@ -160,8 +160,11 @@
             </thead>
             <tbody>
               {#each asset.cves as v (v.cveId)}
-                <tr>
-                  <td><a class="cve-link" href="/cve/{v.cveId}">{v.cveId}</a></td>
+                <tr class:row-accepted={v.riskAccepted}>
+                  <td>
+                    <a class="cve-link" href="/cve/{v.cveId}">{v.cveId}</a>
+                    {#if v.riskAccepted}<span class="accepted-tag" title="Risk accepted (active)">accepted</span>{/if}
+                  </td>
                   <td style={v.severity ? `color:${SEV_COLOR[v.severity]}` : ''}>{v.severity ?? '—'}</td>
                   <td>{v.cvssBase !== null ? v.cvssBase.toFixed(1) : '—'}</td>
                   <td>{v.kevListed ? '⚠ KEV' : '—'}</td>
@@ -328,6 +331,17 @@
     color: #86efac;
   }
   .via--cpe {
+    background: var(--color-surface-overlay);
+    color: var(--color-text-tertiary);
+  }
+  .row-accepted {
+    opacity: 0.55;
+  }
+  .accepted-tag {
+    margin-inline-start: var(--space-2);
+    font-size: var(--text-2xs);
+    padding: 1px var(--space-2);
+    border-radius: var(--radius-sm);
     background: var(--color-surface-overlay);
     color: var(--color-text-tertiary);
   }

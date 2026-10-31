@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import type { Severity } from '@threat-lens/contracts';
+  import { invalidateAll } from '$app/navigation';
+  import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
 
   interface Props { data: PageData }
   let { data }: Props = $props();
@@ -11,6 +13,56 @@
 
   function isoToDate(iso: string | null) {
     return iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
+  }
+
+  // --- Risk acceptance (remediation) ---
+  const acceptance = $derived(data.riskAcceptance);
+  let adminToken = $state('');
+  let justification = $state('');
+  let expiresAt = $state(''); // yyyy-mm-dd from a date input
+  let busy = $state(false);
+  let errorMsg = $state('');
+
+  $effect(() => {
+    adminToken = getAdminToken();
+  });
+  function saveToken() {
+    setAdminToken(adminToken.trim());
+  }
+
+  async function accept(e: Event) {
+    e.preventDefault();
+    errorMsg = '';
+    if (!justification.trim() || !expiresAt) return;
+    busy = true;
+    try {
+      // The date input gives a local date; send end-of-day UTC ISO.
+      const iso = new Date(`${expiresAt}T23:59:59Z`).toISOString();
+      await adminFetch(`/api/remediation/${data.detail.cveId}`, 'PUT', {
+        justification: justification.trim(),
+        expiresAt: iso,
+      });
+      justification = '';
+      expiresAt = '';
+      await invalidateAll();
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : 'Failed to accept risk';
+    } finally {
+      busy = false;
+    }
+  }
+
+  async function revoke() {
+    errorMsg = '';
+    busy = true;
+    try {
+      await adminFetch(`/api/remediation/${data.detail.cveId}`, 'DELETE');
+      await invalidateAll();
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : 'Failed to revoke';
+    } finally {
+      busy = false;
+    }
   }
 </script>
 
@@ -36,6 +88,41 @@
       Published {isoToDate(data.detail.publishedAt)} · Modified {isoToDate(data.detail.lastModifiedAt)}
     </p>
   </header>
+
+  <!-- Risk acceptance (remediation) -->
+  {#if acceptance && acceptance.active}
+    <div class="risk-banner" role="status">
+      <div>
+        <strong>Risk accepted</strong> until {isoToDate(acceptance.expiresAt)}{acceptance.acceptedBy ? ` · by ${acceptance.acceptedBy}` : ''}
+        <p class="risk-just">{acceptance.justification}</p>
+      </div>
+      <button class="btn-revoke" type="button" disabled={busy} onclick={revoke}>Revoke</button>
+    </div>
+  {/if}
+
+  <details class="admin-panel risk-panel">
+    <summary>{acceptance?.active ? 'Extend / change risk acceptance' : 'Accept risk for this CVE'}</summary>
+    <div class="admin-body">
+      <label class="field">
+        <span class="field__label">Admin token</span>
+        <input class="field__input" type="password" bind:value={adminToken} onblur={saveToken} placeholder="ADMIN_BEARER — this tab only" autocomplete="off" />
+      </label>
+      <form class="risk-form" onsubmit={accept}>
+        <label class="field field--grow">
+          <span class="field__label">Justification (required)</span>
+          <input class="field__input" bind:value={justification} maxlength="2000" placeholder="e.g. not reachable in our deployment; compensating control X" />
+        </label>
+        <label class="field">
+          <span class="field__label">Expires (required)</span>
+          <input class="field__input" type="date" bind:value={expiresAt} />
+        </label>
+        <button class="btn-primary" type="submit" disabled={busy || !justification.trim() || !expiresAt}>
+          {acceptance?.active ? 'Update' : 'Accept'}
+        </button>
+      </form>
+      {#if errorMsg}<p class="risk-error" role="alert">{errorMsg}</p>{/if}
+    </div>
+  </details>
 
   <!-- Description -->
   <section class="cve-section" aria-labelledby="desc-heading">
@@ -216,6 +303,21 @@
   .ref-url { color: var(--color-brand-400); word-break: break-all; flex: 1; min-width: 0; }
   .ref-url:hover { text-decoration: underline; }
   .ref-tag { font-size: var(--text-xs); color: var(--color-text-tertiary); background: var(--color-surface-elevated); padding: 0.125rem 0.375rem; border-radius: var(--radius-sm); flex-shrink: 0; }
+
+  .risk-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) var(--space-4); margin-block-end: var(--space-6); background: var(--color-surface-overlay); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .risk-just { margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--color-text-tertiary); }
+  .risk-panel { margin-block-end: var(--space-6); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); background: var(--color-surface-raised); }
+  .risk-panel summary { padding: var(--space-2) var(--space-4); font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer; }
+  .admin-body { padding: 0 var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
+  .risk-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+  .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 10rem; }
+  .field--grow { flex: 1; min-width: 16rem; }
+  .field__label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
+  .field__input { padding: var(--space-2) var(--space-3); background: var(--color-surface-base); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); color: var(--color-text-primary); font-size: var(--text-sm); }
+  .btn-primary { padding: var(--space-2) var(--space-4); background: var(--color-brand-500); color: #fff; border-radius: var(--radius-sm); font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap; }
+  .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-revoke { padding: 2px var(--space-2); font-size: var(--text-xs); color: #fca5a5; border: 1px solid color-mix(in srgb, #ef4444 35%, transparent); border-radius: var(--radius-sm); flex-shrink: 0; }
+  .risk-error { font-size: var(--text-sm); color: #fca5a5; margin: 0; }
 
   @media (max-width: 700px) {
     .two-col { grid-template-columns: 1fr; }

@@ -79,6 +79,7 @@
       <li><a href="/threat-intel" aria-current={$page.url.pathname.startsWith('/threat-intel') ? 'page' : undefined}>Threat Intel</a></li>
       <li><a href="/watchlists" aria-current={$page.url.pathname.startsWith('/watchlists') ? 'page' : undefined}>Watchlists</a></li>
       <li><a href="/assets" aria-current={$page.url.pathname.startsWith('/assets') ? 'page' : undefined}>Assets</a></li>
+      <li><a href="/remediation" aria-current={$page.url.pathname.startsWith('/remediation') ? 'page' : undefined}>Remediation</a></li>
     </ul>
 
     <button
