@@ -41,6 +41,17 @@ export interface WatchlistMatch {
   cvssBase: number | null;
   kevListed: boolean;
   epssPercentile: number | null;
+  /** Deterministic 0–100 triage priority computed from KEV/EPSS/CVSS/severity
+   *  (see the app's `priority.ts`). Advisory — ranks matches so the most
+   *  actionable surface first; never auto-triages. Null when the CVE has aged
+   *  out (no underlying data to score). Zero AI, zero neuron cost. */
+  priorityScore: number | null;
+  /** Coarse band derived from priorityScore, for badge colouring/sorting. */
+  priorityBand: 'CRITICAL' | 'HIGH' | 'MODERATE' | 'LOW' | null;
+  /** Short deterministic plain-English explanation of the score — the factors
+   *  that drove it (e.g. "KEV-listed; EPSS 97th pct; CVSS 9.8"). Not
+   *  AI-generated. */
+  priorityRationale: string | null;
 }
 
 /** Per-status match counts for a watchlist (list-view badges). */

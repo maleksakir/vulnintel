@@ -8,6 +8,7 @@ import type {
   WatchlistSummary,
   WatchlistWebhook,
 } from '@threat-lens/contracts';
+import { withPriority } from '../priority';
 
 // Read-side queries for watchlists. All rows are materialized by the ingest
 // worker's reconciliation engine (watchlist_match); these are cheap indexed
@@ -229,17 +230,23 @@ export async function getWatchlistDetail(
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
 
-  const matches: WatchlistMatch[] = page.map((m) => ({
-    cveId: m.cve_id,
-    status: m.status,
-    note: m.note,
-    firstMatchedAt: new Date(m.first_matched_at).toISOString(),
-    statusUpdatedAt: new Date(m.status_updated_at).toISOString(),
-    severity: (m.severity as WatchlistMatch['severity']) ?? null,
-    cvssBase: m.cvss_base,
-    kevListed: m.kev_listed === 1,
-    epssPercentile: m.epss_percentile,
-  }));
+  const matches: WatchlistMatch[] = page.map((m) =>
+    withPriority({
+      cveId: m.cve_id,
+      status: m.status,
+      note: m.note,
+      firstMatchedAt: new Date(m.first_matched_at).toISOString(),
+      statusUpdatedAt: new Date(m.status_updated_at).toISOString(),
+      severity: (m.severity as WatchlistMatch['severity']) ?? null,
+      cvssBase: m.cvss_base,
+      kevListed: m.kev_listed === 1,
+      epssPercentile: m.epss_percentile,
+      // Filled by withPriority() below; placeholders keep the object shape.
+      priorityScore: null,
+      priorityBand: null,
+      priorityRationale: null,
+    }),
+  );
 
   let nextCursor: string | null = null;
   if (hasMore) {

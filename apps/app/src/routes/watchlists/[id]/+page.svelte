@@ -277,6 +277,7 @@
         <table class="data-table">
           <thead>
             <tr>
+              <th>Priority</th>
               <th>CVE ID</th>
               <th>Severity</th>
               <th>CVSS</th>
@@ -289,6 +290,16 @@
           <tbody>
             {#each wl.matches as m (m.cveId)}
               <tr>
+                <td>
+                  {#if m.priorityBand}
+                    <span
+                      class="prio-badge prio-badge--{m.priorityBand.toLowerCase()}"
+                      title={m.priorityRationale ?? ''}
+                    >{m.priorityScore} · {m.priorityBand}</span>
+                  {:else}
+                    <span class="prio-badge prio-badge--none">—</span>
+                  {/if}
+                </td>
                 <td><a class="cve-link" href="/cve/{m.cveId}">{m.cveId}</a></td>
                 <td style={m.severity ? `color:${SEV_COLOR[m.severity]}` : ''}>
                   {m.severity ?? '—'}
@@ -613,5 +624,36 @@
   }
   .status-select--ignored {
     color: var(--color-text-tertiary);
+  }
+
+  .prio-badge {
+    display: inline-block;
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    font-family: var(--font-mono);
+    padding: 2px var(--space-2);
+    border-radius: var(--radius-sm);
+    white-space: nowrap;
+    cursor: help;
+  }
+  .prio-badge--critical {
+    background: color-mix(in srgb, #ef4444 22%, transparent);
+    color: #fca5a5;
+  }
+  .prio-badge--high {
+    background: color-mix(in srgb, #f97316 20%, transparent);
+    color: #fdba74;
+  }
+  .prio-badge--moderate {
+    background: color-mix(in srgb, #eab308 18%, transparent);
+    color: #fde047;
+  }
+  .prio-badge--low {
+    background: var(--color-surface-overlay);
+    color: var(--color-text-secondary);
+  }
+  .prio-badge--none {
+    color: var(--color-text-tertiary);
+    cursor: default;
   }
 </style>
