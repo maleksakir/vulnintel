@@ -5,6 +5,7 @@ import type {
   MitreCweQueueMessage,
   NvdQueueMessage,
   RetryMessage,
+  WatchlistQueueMessage,
 } from '@threat-lens/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import worker from '../src/index';
@@ -198,6 +199,56 @@ describe('index.ts queue() dispatch', () => {
 
     await worker.queue(batch, testEnv, createExecutionContext());
 
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+  });
+
+  it('routes a "watchlist-ingest" batch to the watchlist reconciliation consumer, not any other path', async () => {
+    const now = Date.now();
+    await seedCveRow({ cveId: 'CVE-2026-70050' });
+    await testEnv.DB.prepare(
+      `INSERT INTO cpe (cve_id, cpe_uri, part, vendor, product)
+       VALUES (?, ?, 'a', 'acme', 'widget')`,
+    )
+      .bind('CVE-2026-70050', 'cpe:2.3:a:acme:widget:*:*:*:*:*:*:*:*')
+      .run();
+    await testEnv.DB.prepare(
+      `INSERT INTO watchlist (watchlist_id, name, created_at, updated_at) VALUES (1, 'w', ?, ?)`,
+    )
+      .bind(now, now)
+      .run();
+    await testEnv.DB.prepare(
+      `INSERT INTO watchlist_subscription (watchlist_id, vendor, product, created_at)
+       VALUES (1, 'acme', NULL, ?)`,
+    )
+      .bind(now)
+      .run();
+
+    const msg = makeMessage({ kind: 'WATCHLIST_RECONCILE' } as WatchlistQueueMessage);
+    const batch = makeBatch('watchlist-ingest', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    expect(msg.ack).toHaveBeenCalledTimes(1);
+    expect(msg.retry).not.toHaveBeenCalled();
+
+    const match = await testEnv.DB.prepare(
+      `SELECT status FROM watchlist_match WHERE watchlist_id = 1 AND cve_id = 'CVE-2026-70050'`,
+    ).first<{ status: string }>();
+    expect(match?.status).toBe('NEW');
+  });
+
+  it('routes a "watchlist-ingest-staging" batch to the watchlist consumer too (the -staging suffix variant)', async () => {
+    const msg = makeMessage({ kind: 'WATCHLIST_RECONCILE' } as WatchlistQueueMessage);
+    const batch = makeBatch('watchlist-ingest-staging', [msg]);
+
+    const ctx = createExecutionContext();
+    await worker.queue(batch, testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    // No subscriptions seeded → a clean no-op reconcile, still acked.
     expect(msg.ack).toHaveBeenCalledTimes(1);
     expect(msg.retry).not.toHaveBeenCalled();
   });

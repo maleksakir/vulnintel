@@ -13,6 +13,7 @@ declare namespace Cloudflare {
     RETRY_QUEUE: Queue<RetryMessage>;
     EPSS_QUEUE: Queue<EpssQueueMessage>;
     KEV_QUEUE: Queue<KevQueueMessage>;
+    WATCHLIST_QUEUE: Queue<import('@threat-lens/contracts').WatchlistQueueMessage>;
     // Defined in vitest.config.ts; only exists under test.
     TEST_MIGRATIONS: import('cloudflare:test').D1Migration[];
   }

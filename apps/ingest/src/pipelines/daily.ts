@@ -91,6 +91,17 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
     /* best-effort enqueue — see comment above */
   }
 
+  // Watchlist match reconciliation piggybacks on this cron slot too (same
+  // reason as OSV: no free cron slots left). Lightweight kick-off only — the
+  // actual D1 match materialization happens in pipelines/watchlistQueue.ts's
+  // consumer with its own fresh 50-query budget. Best-effort: watchlists are
+  // an additive read-side feature and must never block or fail NVD/MITRE/EPSS.
+  try {
+    await env.WATCHLIST_QUEUE.send({ kind: 'WATCHLIST_RECONCILE' });
+  } catch {
+    /* best-effort enqueue — see comment above */
+  }
+
   await Promise.all([
     markIngestStarted(env, 'NVD'),
     markIngestStarted(env, 'MITRE'),

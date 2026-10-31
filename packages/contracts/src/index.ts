@@ -68,6 +68,7 @@ export type {
   WatchlistMatch,
   WatchlistMatchCounts,
   WatchlistMatchStatus,
+  WatchlistQueueMessage,
   WatchlistSubscription,
   WatchlistSummary,
 } from './watchlist.js';

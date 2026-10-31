@@ -88,3 +88,10 @@ CREATE TABLE IF NOT EXISTS watchlist_sync_state (
   last_cursor_ms     INTEGER NOT NULL,   -- cve.last_modified_at high-water mark
   last_run_at        INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
+
+-- Seed the ingest_run row for the watchlist reconciliation consumer so
+-- /admin/health has a row for it and markIngestStarted's UPDATE isn't a
+-- silent no-op (it UPDATEs WHERE source = ?, so the row must pre-exist —
+-- same convention as migration 0002's seeds and 0007's OSV seed).
+-- INSERT OR IGNORE: safe to re-run, and tolerant of a leftover row.
+INSERT OR IGNORE INTO ingest_run (source) VALUES ('WATCHLIST');

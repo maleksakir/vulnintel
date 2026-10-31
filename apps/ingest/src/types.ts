@@ -5,6 +5,7 @@ import type {
   NvdQueueMessage,
   OsvQueueMessage,
   RetryMessage,
+  WatchlistQueueMessage,
 } from '@threat-lens/contracts';
 
 /** Cloudflare bindings for the ingest worker — must match wrangler.toml exactly. */
@@ -48,6 +49,12 @@ export interface Env {
   // public single-record endpoint and writes only CWE rows (never
   // cve/cve_state — see adapters/mitre.ts and pipelines/mitreQueue.ts).
   MITRE_QUEUE: Queue<MitreCweQueueMessage>;
+  // Watchlist reconciliation queue producer — daily.ts sends a lightweight
+  // WATCHLIST_RECONCILE kick-off (watchlists have no cron slot of their own);
+  // pipelines/watchlistQueue.ts's consumer materializes vendor/product
+  // matches into watchlist_match with its own fresh 50-D1-query budget (see
+  // lib/server/watchlistReconcile.ts and wrangler.toml).
+  WATCHLIST_QUEUE: Queue<WatchlistQueueMessage>;
   // Secrets (injected via `wrangler secret put`, never in wrangler.toml).
   NVD_API_KEY: string;
   CLOUDFLARE_API_TOKEN: string;

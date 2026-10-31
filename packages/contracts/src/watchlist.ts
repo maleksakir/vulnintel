@@ -105,3 +105,14 @@ export interface UpdateMatchRequest {
   status?: WatchlistMatchStatus;
   note?: string | null;
 }
+
+/** watchlist-ingest queue message. One kind today: a kick-off to run the
+ *  incremental match reconciliation (materialize vendor/product matches for
+ *  CVEs modified since the last run into watchlist_match). Sent from the
+ *  daily cron producer (pipelines/daily.ts), since watchlists have no cron
+ *  slot of their own — all 5 are used — and consumed by
+ *  pipelines/watchlistQueue.ts with its own fresh 50-D1-query budget. A kind
+ *  field (rather than a bare {}) leaves room for future message kinds
+ *  (e.g. a targeted re-match when a subscription is added) without a new
+ *  queue. */
+export type WatchlistQueueMessage = { kind: 'WATCHLIST_RECONCILE' };

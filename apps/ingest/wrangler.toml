@@ -117,6 +117,24 @@ max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "kev-ingest-dlq"
 
+# Watchlist reconciliation queue. Carries one lightweight WATCHLIST_RECONCILE
+# kick-off per daily cron run (watchlists have no cron slot of their own — all
+# 5 are used). pipelines/watchlistQueue.ts's consumer materializes
+# vendor/product matches into watchlist_match (lib/server/watchlistReconcile.ts)
+# with its own fresh 50-D1-query budget — the reconciliation scan is bounded by
+# the subscribed-vendor set and a MAX_CVES_PER_RUN cap, not by total CVE churn.
+# max_batch_size = 1 keeps one-message-per-invocation exact, same as the others.
+[[queues.producers]]
+queue = "watchlist-ingest"
+binding = "WATCHLIST_QUEUE"
+
+[[queues.consumers]]
+queue = "watchlist-ingest"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "watchlist-ingest-dlq"
+
 # NVD queue. NVD's 48h delta is variable (hundreds to low-thousands of
 # modified records per window, not a fixed daily snapshot like EPSS's
 # 250k-row CSV) and each CHANGED record's processRecord() call costs up to
@@ -264,6 +282,19 @@ max_batch_size = 1
 max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "kev-ingest-dlq-staging"
+
+# Isolated from production's watchlist-ingest queue for the same reason as
+# epss-ingest-staging above.
+[[env.staging.queues.producers]]
+queue = "watchlist-ingest-staging"
+binding = "WATCHLIST_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "watchlist-ingest-staging"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "watchlist-ingest-dlq-staging"
 
 # Isolated from production's nvd-ingest queue for the same reason as
 # epss-ingest-staging above.
