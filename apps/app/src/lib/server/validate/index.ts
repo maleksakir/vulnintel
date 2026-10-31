@@ -168,3 +168,180 @@ const VALID_WINDOWS = new Set<MetricsWindow>(['1h', '24h', '7d', '30d', '90d']);
 export function isValidMetricsWindow(w: string): w is MetricsWindow {
   return VALID_WINDOWS.has(w as MetricsWindow);
 }
+
+// ── Watchlists ────────────────────────────────────────────────────────────────
+
+const WATCHLIST_STATUSES = new Set(['NEW', 'TRIAGING', 'ACKNOWLEDGED', 'RESOLVED', 'IGNORED']);
+
+const NAME_MAX = 120;
+const DESC_MAX = 500;
+const NOTE_MAX = 2000;
+const VENDOR_MAX = 200;
+const PRODUCT_MAX = 200;
+
+type Validated<T> = { ok: true; value: T } | { ok: false; details: Record<string, string> };
+
+export function validateCreateWatchlist(
+  body: unknown,
+): Validated<{ name: string; description?: string }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+
+  const name = typeof b.name === 'string' ? b.name.trim() : '';
+  if (name.length < 1 || name.length > NAME_MAX) {
+    errors.name = `Must be a string of 1–${NAME_MAX} characters`;
+  }
+
+  let description: string | undefined;
+  if (b.description !== undefined && b.description !== null) {
+    if (typeof b.description !== 'string' || b.description.length > DESC_MAX) {
+      errors.description = `Must be a string of at most ${DESC_MAX} characters`;
+    } else {
+      description = b.description;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  return { ok: true, value: { name, ...(description !== undefined && { description }) } };
+}
+
+export function validateUpdateWatchlist(
+  body: unknown,
+): Validated<{ name?: string; description?: string | null }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+  const value: { name?: string; description?: string | null } = {};
+
+  if (b.name !== undefined) {
+    const name = typeof b.name === 'string' ? b.name.trim() : '';
+    if (name.length < 1 || name.length > NAME_MAX) {
+      errors.name = `Must be a string of 1–${NAME_MAX} characters`;
+    } else {
+      value.name = name;
+    }
+  }
+  if (b.description !== undefined) {
+    if (b.description === null) {
+      value.description = null;
+    } else if (typeof b.description !== 'string' || b.description.length > DESC_MAX) {
+      errors.description = `Must be a string of at most ${DESC_MAX} characters, or null`;
+    } else {
+      value.description = b.description;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  if (value.name === undefined && value.description === undefined) {
+    return { ok: false, details: { _root: 'At least one of name or description is required' } };
+  }
+  return { ok: true, value };
+}
+
+export function validateCreateSubscription(
+  body: unknown,
+): Validated<{ vendor: string; product: string | null }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+
+  // NVD normalizes vendor/product to lowercase in cpe; lowercase user input
+  // so a subscription actually matches (the reconciliation engine compares
+  // case-sensitively against cpe.vendor/product).
+  const vendor = typeof b.vendor === 'string' ? b.vendor.trim().toLowerCase() : '';
+  if (vendor.length < 1 || vendor.length > VENDOR_MAX) {
+    errors.vendor = `Must be a string of 1–${VENDOR_MAX} characters`;
+  }
+
+  let product: string | null = null;
+  if (b.product !== undefined && b.product !== null) {
+    if (typeof b.product !== 'string' || b.product.length > PRODUCT_MAX) {
+      errors.product = `Must be a string of at most ${PRODUCT_MAX} characters, or null/omitted for all products`;
+    } else {
+      const trimmed = b.product.trim().toLowerCase();
+      product = trimmed.length > 0 ? trimmed : null;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  return { ok: true, value: { vendor, product } };
+}
+
+const WEBHOOK_KINDS = new Set(['generic', 'slack']);
+const URL_MAX = 2048;
+
+export function validateCreateWebhook(
+  body: unknown,
+): Validated<{ url: string; kind: 'generic' | 'slack' }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+
+  const url = typeof b.url === 'string' ? b.url.trim() : '';
+  // Require an absolute https URL — a webhook is an outbound POST of internal
+  // data, so http (cleartext) and relative/other schemes are rejected.
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(url);
+  } catch {
+    parsed = null;
+  }
+  if (url.length < 1 || url.length > URL_MAX || parsed === null || parsed.protocol !== 'https:') {
+    errors.url = `Must be an absolute https:// URL of at most ${URL_MAX} characters`;
+  }
+
+  let kind: 'generic' | 'slack' = 'generic';
+  if (b.kind !== undefined) {
+    if (typeof b.kind !== 'string' || !WEBHOOK_KINDS.has(b.kind)) {
+      errors.kind = "Must be 'generic' or 'slack'";
+    } else {
+      kind = b.kind as 'generic' | 'slack';
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  return { ok: true, value: { url, kind } };
+}
+
+export function validateUpdateMatch(
+  body: unknown,
+): Validated<{ status?: string; note?: string | null }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+  const value: { status?: string; note?: string | null } = {};
+
+  if (b.status !== undefined) {
+    if (typeof b.status !== 'string' || !WATCHLIST_STATUSES.has(b.status)) {
+      errors.status = `Must be one of: ${[...WATCHLIST_STATUSES].join(', ')}`;
+    } else {
+      value.status = b.status;
+    }
+  }
+  if (b.note !== undefined) {
+    if (b.note === null) {
+      value.note = null;
+    } else if (typeof b.note !== 'string' || b.note.length > NOTE_MAX) {
+      errors.note = `Must be a string of at most ${NOTE_MAX} characters, or null`;
+    } else {
+      value.note = b.note;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  if (value.status === undefined && value.note === undefined) {
+    return { ok: false, details: { _root: 'At least one of status or note is required' } };
+  }
+  return { ok: true, value };
+}

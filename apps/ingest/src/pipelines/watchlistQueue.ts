@@ -1,5 +1,6 @@
 import type { WatchlistQueueMessage } from '@threat-lens/contracts';
 import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
+import { dispatchWatchlistNotifications } from '../lib/server/watchlistNotify';
 import { reconcileWatchlistMatches } from '../lib/server/watchlistReconcile';
 import type { Env } from '../types';
 
@@ -46,10 +47,32 @@ export async function runWatchlistConsumer(
     // emits FAILED telemetry, rather than throwing uncaught past all of it.
     await markIngestStarted(env, 'WATCHLIST');
     const result = await reconcileWatchlistMatches(env);
+    // Fire new-match digests to any enabled webhooks. Runs in the same
+    // invocation after reconciliation — it's bounded (capped webhooks ×
+    // capped digest size) and best-effort, so wrap it so a notification
+    // failure can't fail the whole reconciliation (which already committed
+    // its matches). A webhook that fails leaves notified_at NULL and is
+    // retried next run (see watchlistNotify.ts).
+    let notified = { webhooksDispatched: 0, matchesNotified: 0 };
+    try {
+      notified = await dispatchWatchlistNotifications(env);
+    } catch (notifyErr) {
+      env.ANALYTICS.writeDataPoint({
+        blobs: ['WATCHLIST_NOTIFY', 'ERROR', String(notifyErr), '', '', '', ''],
+        doubles: [Date.now() - t0, 0, 0, 0, 0],
+        indexes: ['watchlist_consumer_processed'],
+      });
+    }
     await markIngestFinished(env, 'WATCHLIST', 'OK', result.matchesWritten, 0, undefined);
     env.ANALYTICS.writeDataPoint({
       blobs: ['WATCHLIST_QUEUE', 'OK', '', '', '', '', ''],
-      doubles: [Date.now() - t0, result.cvesScanned, result.matchesWritten, 0, 0],
+      doubles: [
+        Date.now() - t0,
+        result.cvesScanned,
+        result.matchesWritten,
+        notified.webhooksDispatched,
+        notified.matchesNotified,
+      ],
       indexes: ['watchlist_consumer_processed'],
     });
   } catch (err) {

@@ -77,6 +77,7 @@ export interface WatchlistDetailResponse {
   createdAt: string; // ISO 8601
   updatedAt: string; // ISO 8601
   subscriptions: WatchlistSubscription[];
+  webhooks: WatchlistWebhook[];
   matchCounts: WatchlistMatchCounts;
   matches: WatchlistMatch[];
   nextCursor: string | null;
@@ -104,6 +105,24 @@ export interface CreateSubscriptionRequest {
 export interface UpdateMatchRequest {
   status?: WatchlistMatchStatus;
   note?: string | null;
+}
+
+/** A notification webhook configured on a watchlist. Slack endpoints get a
+ *  `{text}` payload; generic endpoints get a structured JSON digest. */
+export interface WatchlistWebhook {
+  webhookId: number;
+  kind: 'generic' | 'slack';
+  url: string;
+  enabled: boolean;
+  createdAt: string; // ISO 8601
+  lastDispatchAt: string | null; // ISO 8601
+  lastDispatchStatus: string | null;
+}
+
+/** POST /api/watchlists/[id]/webhooks */
+export interface CreateWebhookRequest {
+  url: string;
+  kind?: 'generic' | 'slack';
 }
 
 /** watchlist-ingest queue message. One kind today: a kick-off to run the

@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { Severity, WatchlistMatchCounts, WatchlistMatchStatus } from '@threat-lens/contracts';
+  import { invalidateAll } from '$app/navigation';
+  import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
   import type { PageData } from './$types';
 
   interface Props {
@@ -8,6 +10,98 @@
   let { data }: Props = $props();
 
   const wl = $derived(data.detail);
+
+  // --- Admin editing (gated by the admin token in sessionStorage) ---
+  let adminToken = $state('');
+  let busy = $state(false);
+  let errorMsg = $state('');
+  let newVendor = $state('');
+  let newProduct = $state('');
+  let newWebhookUrl = $state('');
+  let newWebhookKind = $state<'generic' | 'slack'>('generic');
+
+  $effect(() => {
+    adminToken = getAdminToken();
+  });
+
+  function saveToken() {
+    setAdminToken(adminToken.trim());
+  }
+
+  const ALL_STATUSES: WatchlistMatchStatus[] = [
+    'NEW',
+    'TRIAGING',
+    'ACKNOWLEDGED',
+    'RESOLVED',
+    'IGNORED',
+  ];
+
+  async function run(fn: () => Promise<unknown>) {
+    errorMsg = '';
+    busy = true;
+    try {
+      await fn();
+      await invalidateAll();
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : 'Action failed';
+    } finally {
+      busy = false;
+    }
+  }
+
+  function addSub(e: Event) {
+    e.preventDefault();
+    if (!newVendor.trim()) return;
+    run(async () => {
+      await adminFetch(`/api/watchlists/${wl.watchlistId}/subscriptions`, 'POST', {
+        vendor: newVendor.trim(),
+        ...(newProduct.trim() && { product: newProduct.trim() }),
+      });
+      newVendor = '';
+      newProduct = '';
+    });
+  }
+
+  function removeSub(subscriptionId: number) {
+    run(() =>
+      adminFetch(
+        `/api/watchlists/${wl.watchlistId}/subscriptions/${subscriptionId}`,
+        'DELETE',
+      ),
+    );
+  }
+
+  function changeStatus(cveId: string, status: string) {
+    run(() =>
+      adminFetch(`/api/watchlists/${wl.watchlistId}/matches/${cveId}`, 'PATCH', { status }),
+    );
+  }
+
+  function addWebhook(e: Event) {
+    e.preventDefault();
+    if (!newWebhookUrl.trim()) return;
+    run(async () => {
+      await adminFetch(`/api/watchlists/${wl.watchlistId}/webhooks`, 'POST', {
+        url: newWebhookUrl.trim(),
+        kind: newWebhookKind,
+      });
+      newWebhookUrl = '';
+    });
+  }
+
+  function removeWebhook(webhookId: number) {
+    run(() => adminFetch(`/api/watchlists/${wl.watchlistId}/webhooks/${webhookId}`, 'DELETE'));
+  }
+
+  function deleteWatchlist() {
+    if (!confirm(`Delete watchlist "${wl.name}" and all its matches? This cannot be undone.`)) {
+      return;
+    }
+    run(async () => {
+      await adminFetch(`/api/watchlists/${wl.watchlistId}`, 'DELETE');
+      window.location.href = '/watchlists';
+    });
+  }
 
   const SEV_COLOR: Record<Severity, string> = {
     CRITICAL: '#ef4444',
@@ -68,6 +162,70 @@
     <p class="wl-meta">Created {isoToDate(wl.createdAt)} · updated {isoToDate(wl.updatedAt)}</p>
   </header>
 
+  <details class="admin-panel">
+    <summary>Admin actions</summary>
+    <div class="admin-body">
+      <label class="field">
+        <span class="field__label">Admin token</span>
+        <input
+          class="field__input"
+          type="password"
+          bind:value={adminToken}
+          onblur={saveToken}
+          placeholder="ADMIN_BEARER — stored in this tab only"
+          autocomplete="off"
+        />
+      </label>
+
+      <form class="inline-form" onsubmit={addSub}>
+        <label class="field">
+          <span class="field__label">Add subscription — vendor</span>
+          <input class="field__input" bind:value={newVendor} placeholder="e.g. apache" />
+        </label>
+        <label class="field">
+          <span class="field__label">Product (optional — blank = all)</span>
+          <input class="field__input" bind:value={newProduct} placeholder="e.g. http_server" />
+        </label>
+        <button class="btn-primary" type="submit" disabled={busy || !newVendor.trim()}>Add</button>
+      </form>
+
+      <form class="inline-form" onsubmit={addWebhook}>
+        <label class="field">
+          <span class="field__label">Notification webhook URL (https)</span>
+          <input class="field__input" bind:value={newWebhookUrl} placeholder="https://hooks.slack.com/…" />
+        </label>
+        <label class="field field--narrow">
+          <span class="field__label">Kind</span>
+          <select class="field__input" bind:value={newWebhookKind}>
+            <option value="generic">Generic</option>
+            <option value="slack">Slack</option>
+          </select>
+        </label>
+        <button class="btn-primary" type="submit" disabled={busy || !newWebhookUrl.trim()}>Add webhook</button>
+      </form>
+
+      {#if wl.webhooks.length > 0}
+        <ul class="webhook-list" role="list">
+          {#each wl.webhooks as wh (wh.webhookId)}
+            <li class="webhook-row">
+              <span class="webhook-kind">{wh.kind}</span>
+              <span class="webhook-url">{wh.url}</span>
+              <button class="btn-danger-sm" type="button" disabled={busy} onclick={() => removeWebhook(wh.webhookId)}>Remove</button>
+            </li>
+          {/each}
+        </ul>
+      {/if}
+
+      <button class="btn-danger" type="button" disabled={busy} onclick={deleteWatchlist}>
+        Delete this watchlist
+      </button>
+
+      {#if errorMsg}
+        <p class="admin-error" role="alert">{errorMsg}</p>
+      {/if}
+    </div>
+  </details>
+
   <section class="wl-subs" aria-label="Subscriptions">
     <h2 class="section-title">Subscriptions</h2>
     {#if wl.subscriptions.length === 0}
@@ -77,7 +235,16 @@
     {:else}
       <ul class="sub-list" role="list">
         {#each wl.subscriptions as sub (sub.subscriptionId)}
-          <li class="sub-chip">{subLabel(sub.vendor, sub.product)}</li>
+          <li class="sub-chip">
+            {subLabel(sub.vendor, sub.product)}
+            <button
+              class="sub-remove"
+              type="button"
+              disabled={busy}
+              aria-label="Remove subscription {subLabel(sub.vendor, sub.product)}"
+              onclick={() => removeSub(sub.subscriptionId)}
+            >×</button>
+          </li>
         {/each}
       </ul>
     {/if}
@@ -129,7 +296,19 @@
                 <td>{m.cvssBase !== null ? m.cvssBase.toFixed(1) : '—'}</td>
                 <td>{m.kevListed ? '⚠ KEV' : '—'}</td>
                 <td>{m.epssPercentile !== null ? `${(m.epssPercentile * 100).toFixed(1)}th` : '—'}</td>
-                <td><span class="status-pill status-pill--{m.status.toLowerCase()}">{m.status}</span></td>
+                <td>
+                  <select
+                    class="status-select status-select--{m.status.toLowerCase()}"
+                    value={m.status}
+                    disabled={busy}
+                    aria-label="Triage status for {m.cveId}"
+                    onchange={(e) => changeStatus(m.cveId, (e.currentTarget as HTMLSelectElement).value)}
+                  >
+                    {#each ALL_STATUSES as s}
+                      <option value={s}>{s}</option>
+                    {/each}
+                  </select>
+                </td>
                 <td>{isoToDate(m.firstMatchedAt)}</td>
               </tr>
             {/each}
@@ -272,34 +451,6 @@
     text-decoration: underline;
   }
 
-  .status-pill {
-    font-size: var(--text-2xs);
-    font-weight: var(--weight-medium);
-    padding: 2px var(--space-2);
-    border-radius: var(--radius-full);
-    white-space: nowrap;
-  }
-  .status-pill--new {
-    background: color-mix(in srgb, #ef4444 20%, transparent);
-    color: #fca5a5;
-  }
-  .status-pill--triaging {
-    background: color-mix(in srgb, #f97316 20%, transparent);
-    color: #fdba74;
-  }
-  .status-pill--acknowledged {
-    background: color-mix(in srgb, #eab308 18%, transparent);
-    color: #fde047;
-  }
-  .status-pill--resolved {
-    background: color-mix(in srgb, #22c55e 16%, transparent);
-    color: #86efac;
-  }
-  .status-pill--ignored {
-    background: var(--color-surface-overlay);
-    color: var(--color-text-tertiary);
-  }
-
   .pagination {
     margin-block-start: var(--space-6);
   }
@@ -314,5 +465,153 @@
   }
   .pagination-btn:hover {
     background: var(--color-surface-elevated);
+  }
+
+  /* --- Admin panel --- */
+  .admin-panel {
+    margin-block: var(--space-4) var(--space-2);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+  }
+  .admin-panel summary {
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+  .admin-body {
+    padding: 0 var(--space-4) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .inline-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    flex: 1;
+    min-width: 12rem;
+  }
+  .field--narrow {
+    flex: 0 0 8rem;
+    min-width: 8rem;
+  }
+  .field__label {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+  }
+  .field__input {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface-base);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    font-size: var(--text-sm);
+  }
+  .btn-primary {
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-brand-500);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-danger {
+    align-self: flex-start;
+    padding: var(--space-2) var(--space-4);
+    background: transparent;
+    color: #fca5a5;
+    border: 1px solid color-mix(in srgb, #ef4444 40%, transparent);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+  }
+  .btn-danger:disabled {
+    opacity: 0.5;
+  }
+  .btn-danger-sm {
+    padding: 2px var(--space-2);
+    color: #fca5a5;
+    font-size: var(--text-xs);
+  }
+  .admin-error {
+    font-size: var(--text-sm);
+    color: #fca5a5;
+    margin: 0;
+  }
+
+  .webhook-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .webhook-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-xs);
+  }
+  .webhook-kind {
+    font-family: var(--font-mono);
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+  }
+  .webhook-url {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+  }
+
+  .sub-remove {
+    margin-inline-start: var(--space-1);
+    color: var(--color-text-tertiary);
+    font-size: var(--text-sm);
+    line-height: 1;
+  }
+  .sub-remove:hover {
+    color: #fca5a5;
+  }
+
+  .status-select {
+    padding: 2px var(--space-2);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-medium);
+    border-radius: var(--radius-full);
+    border: 1px solid var(--color-border-default);
+    background: var(--color-surface-base);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+  .status-select--new {
+    color: #fca5a5;
+  }
+  .status-select--triaging {
+    color: #fdba74;
+  }
+  .status-select--acknowledged {
+    color: #fde047;
+  }
+  .status-select--resolved {
+    color: #86efac;
+  }
+  .status-select--ignored {
+    color: var(--color-text-tertiary);
   }
 </style>

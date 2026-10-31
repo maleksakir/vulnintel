@@ -61,6 +61,7 @@ export { EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL } from './embed.js';
 export type {
   CreateSubscriptionRequest,
   CreateWatchlistRequest,
+  CreateWebhookRequest,
   UpdateMatchRequest,
   UpdateWatchlistRequest,
   WatchlistDetailResponse,
@@ -71,5 +72,6 @@ export type {
   WatchlistQueueMessage,
   WatchlistSubscription,
   WatchlistSummary,
+  WatchlistWebhook,
 } from './watchlist.js';
 export { WATCHLIST_TERMINAL_STATUSES } from './watchlist.js';

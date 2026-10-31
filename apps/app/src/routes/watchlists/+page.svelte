@@ -1,5 +1,7 @@
 <script lang="ts">
   import type { WatchlistMatchCounts } from '@threat-lens/contracts';
+  import { invalidateAll } from '$app/navigation';
+  import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
   import type { PageData } from './$types';
 
   interface Props {
@@ -23,6 +25,41 @@
   function totalMatches(counts: WatchlistMatchCounts): number {
     return STATUS_ORDER.reduce((sum, s) => sum + counts[s], 0);
   }
+
+  // --- Admin create form (gated by the admin token) ---
+  let adminToken = $state('');
+  let newName = $state('');
+  let newDesc = $state('');
+  let busy = $state(false);
+  let errorMsg = $state('');
+
+  $effect(() => {
+    adminToken = getAdminToken();
+  });
+
+  function saveToken() {
+    setAdminToken(adminToken.trim());
+  }
+
+  async function createWatchlist(e: Event) {
+    e.preventDefault();
+    errorMsg = '';
+    if (!newName.trim()) return;
+    busy = true;
+    try {
+      await adminFetch('/api/watchlists', 'POST', {
+        name: newName.trim(),
+        ...(newDesc.trim() && { description: newDesc.trim() }),
+      });
+      newName = '';
+      newDesc = '';
+      await invalidateAll();
+    } catch (err) {
+      errorMsg = err instanceof Error ? err.message : 'Failed to create watchlist';
+    } finally {
+      busy = false;
+    }
+  }
 </script>
 
 <svelte:head>
@@ -35,6 +72,40 @@
     Track the CVEs affecting the vendors and products you care about, with a per-CVE triage
     pipeline — instead of re-running the same filtered search every day.
   </p>
+
+  <details class="admin-panel">
+    <summary>Admin actions</summary>
+    <div class="admin-body">
+      <label class="field">
+        <span class="field__label">Admin token</span>
+        <input
+          class="field__input"
+          type="password"
+          bind:value={adminToken}
+          onblur={saveToken}
+          placeholder="ADMIN_BEARER — stored in this tab only"
+          autocomplete="off"
+        />
+      </label>
+
+      <form class="create-form" onsubmit={createWatchlist}>
+        <label class="field">
+          <span class="field__label">New watchlist name</span>
+          <input class="field__input" bind:value={newName} maxlength="120" placeholder="e.g. Perimeter stack" />
+        </label>
+        <label class="field">
+          <span class="field__label">Description (optional)</span>
+          <input class="field__input" bind:value={newDesc} maxlength="500" />
+        </label>
+        <button class="btn-primary" type="submit" disabled={busy || !newName.trim()}>
+          {busy ? 'Creating…' : 'Create watchlist'}
+        </button>
+      </form>
+      {#if errorMsg}
+        <p class="admin-error" role="alert">{errorMsg}</p>
+      {/if}
+    </div>
+  </details>
 
   {#if data.watchlists.length === 0}
     <div class="empty-state">
@@ -90,6 +161,69 @@
     color: var(--color-text-tertiary);
     margin: 0 0 var(--space-6);
     max-width: 48rem;
+  }
+
+  .admin-panel {
+    margin-block-end: var(--space-6);
+    border: 1px solid var(--color-border-subtle);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-raised);
+  }
+  .admin-panel summary {
+    padding: var(--space-3) var(--space-4);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+  .admin-body {
+    padding: 0 var(--space-4) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .create-form {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-3);
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    flex: 1;
+    min-width: 14rem;
+  }
+  .field__label {
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+  }
+  .field__input {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-surface-base);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-sm);
+    color: var(--color-text-primary);
+    font-size: var(--text-sm);
+  }
+  .btn-primary {
+    padding: var(--space-2) var(--space-4);
+    background: var(--color-brand-500);
+    color: #fff;
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    font-weight: var(--weight-medium);
+    white-space: nowrap;
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .admin-error {
+    font-size: var(--text-sm);
+    color: #fca5a5;
+    margin: 0;
   }
 
   .empty-state {

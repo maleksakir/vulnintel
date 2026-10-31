@@ -6,6 +6,7 @@ import type {
   WatchlistMatchStatus,
   WatchlistSubscription,
   WatchlistSummary,
+  WatchlistWebhook,
 } from '@threat-lens/contracts';
 
 // Read-side queries for watchlists. All rows are materialized by the ingest
@@ -42,6 +43,16 @@ interface SubscriptionRow {
   vendor: string;
   product: string | null;
   created_at: number;
+}
+
+interface WebhookRow {
+  webhook_id: number;
+  kind: 'generic' | 'slack';
+  url: string;
+  enabled: number;
+  created_at: number;
+  last_dispatch_at: number | null;
+  last_dispatch_status: string | null;
 }
 
 interface MatchRow {
@@ -127,13 +138,20 @@ export async function getWatchlistDetail(
     .first<WatchlistRow>();
   if (!wl) return null;
 
-  // Subscriptions + per-status counts in one batch.
-  const [subRes, countRes] = await db.batch([
+  // Subscriptions + webhooks + per-status counts in one batch.
+  const [subRes, webhookRes, countRes] = await db.batch([
     db
       .prepare(
         `SELECT subscription_id, vendor, product, created_at
          FROM watchlist_subscription WHERE watchlist_id = ?
          ORDER BY vendor ASC, product ASC`,
+      )
+      .bind(watchlistId),
+    db
+      .prepare(
+        `SELECT webhook_id, kind, url, enabled, created_at, last_dispatch_at, last_dispatch_status
+         FROM watchlist_webhook WHERE watchlist_id = ?
+         ORDER BY created_at ASC`,
       )
       .bind(watchlistId),
     db
@@ -152,6 +170,16 @@ export async function getWatchlistDetail(
       createdAt: new Date(s.created_at).toISOString(),
     }),
   );
+
+  const webhooks: WatchlistWebhook[] = (webhookRes as D1Result<WebhookRow>).results.map((w) => ({
+    webhookId: w.webhook_id,
+    kind: w.kind,
+    url: w.url,
+    enabled: w.enabled === 1,
+    createdAt: new Date(w.created_at).toISOString(),
+    lastDispatchAt: w.last_dispatch_at !== null ? new Date(w.last_dispatch_at).toISOString() : null,
+    lastDispatchStatus: w.last_dispatch_status,
+  }));
 
   const matchCounts = emptyCounts();
   for (const c of (countRes as D1Result<CountRow>).results) matchCounts[c.status] = c.n;
@@ -226,6 +254,7 @@ export async function getWatchlistDetail(
     createdAt: new Date(wl.created_at).toISOString(),
     updatedAt: new Date(wl.updated_at).toISOString(),
     subscriptions,
+    webhooks,
     matchCounts,
     matches,
     nextCursor,

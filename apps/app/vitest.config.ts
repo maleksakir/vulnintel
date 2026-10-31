@@ -19,7 +19,11 @@ export default defineConfig(async () => {
         // and Workers AI are mocked per-test where a test happens to touch them.
         wrangler: { configPath: './wrangler.toml' },
         miniflare: {
-          bindings: { TEST_MIGRATIONS: migrations },
+          // TEST_MIGRATIONS: applied by the setup file before each suite.
+          // ADMIN_BEARER: a fixed test value so admin-gated mutation routes
+          // (watchlist create/edit/etc.) can be exercised end to end; in
+          // production this is a real `wrangler secret`, never committed.
+          bindings: { TEST_MIGRATIONS: migrations, ADMIN_BEARER: 'test-admin-token' },
         },
       }),
     ],
