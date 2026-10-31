@@ -56,6 +56,19 @@ export type {
   Severity,
   SsvcDecision,
 } from './cve.js';
-
 export type { EmbedFn } from './embed.js';
 export { EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL } from './embed.js';
+export type {
+  CreateSubscriptionRequest,
+  CreateWatchlistRequest,
+  UpdateMatchRequest,
+  UpdateWatchlistRequest,
+  WatchlistDetailResponse,
+  WatchlistListResponse,
+  WatchlistMatch,
+  WatchlistMatchCounts,
+  WatchlistMatchStatus,
+  WatchlistSubscription,
+  WatchlistSummary,
+} from './watchlist.js';
+export { WATCHLIST_TERMINAL_STATUSES } from './watchlist.js';
