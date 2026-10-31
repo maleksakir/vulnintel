@@ -77,6 +77,7 @@
       <li><a href="/search" aria-current={$page.url.pathname.startsWith('/search') ? 'page' : undefined}>Search</a></li>
       <li><a href="/affected-products" aria-current={$page.url.pathname.startsWith('/affected-products') ? 'page' : undefined}>Affected Products</a></li>
       <li><a href="/threat-intel" aria-current={$page.url.pathname.startsWith('/threat-intel') ? 'page' : undefined}>Threat Intel</a></li>
+      <li><a href="/watchlists" aria-current={$page.url.pathname.startsWith('/watchlists') ? 'page' : undefined}>Watchlists</a></li>
     </ul>
 
     <button
