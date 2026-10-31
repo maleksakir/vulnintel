@@ -1,6 +1,7 @@
 import { isAdminAuthorized } from '$lib/server/adminAuth';
 import { errorResponse } from '$lib/server/errorResponse';
 import { assetExists, importSbom } from '$lib/server/queries/assetMutations';
+import { invalidateAssetsList } from '$lib/server/queries/getAssets';
 import { parseCycloneDxSbom } from '$lib/server/sbom';
 import type { RequestHandler } from './$types';
 
@@ -35,6 +36,8 @@ export const POST: RequestHandler = async ({ params, request, platform, locals }
   }
 
   const result = await importSbom(env.DB, assetId, parsed.components, parsed.skipped);
+  // The asset list's vulnerability counts are now stale.
+  await invalidateAssetsList(env.CACHE);
   return new Response(JSON.stringify(result), {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });

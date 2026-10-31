@@ -1,5 +1,6 @@
 import type { WatchlistMatchStatus } from '@threat-lens/contracts';
 import { isAdminAuthorized } from '$lib/server/adminAuth';
+import { isAdminRequest } from '$lib/server/adminSession';
 import { errorResponse } from '$lib/server/errorResponse';
 import { getWatchlistDetail } from '$lib/server/queries/getWatchlists';
 import { deleteWatchlist, updateWatchlist } from '$lib/server/queries/watchlistMutations';
@@ -22,8 +23,13 @@ function parseId(raw: string | undefined): number | null {
 
 // GET /api/watchlists/[id] — one watchlist: subscriptions + a page of matches
 // (optional ?status= filter, cursor-paginated by status_updated_at DESC).
-export const GET: RequestHandler = async ({ params, url, platform, locals }) => {
+// Operator-only: a watchlist names the vendors/products we run.
+export const GET: RequestHandler = async ({ params, url, request, platform, cookies, locals }) => {
   const env = platform!.env;
+
+  if (!isAdminRequest(request, cookies, env.ADMIN_BEARER)) {
+    return errorResponse('UNAUTHORIZED', 'Admin bearer token required.', locals.cfRay, 403);
+  }
 
   const rate = await checkRateLimit(env.RATE_LIMITER, locals.clientIp);
   if (!rate.allowed) {

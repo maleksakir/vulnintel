@@ -2,6 +2,7 @@
   import type { WatchlistMatchCounts } from '@threat-lens/contracts';
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
+  import AdminSignIn from '$lib/ui/AdminSignIn.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -66,6 +67,9 @@
   <title>Watchlists — Threat-Lens CVE Hub</title>
 </svelte:head>
 
+{#if !data.authed}
+<AdminSignIn what="Your watchlists" />
+{:else}
 <div class="page-watchlists">
   <h1 class="page-title">Watchlists</h1>
   <p class="page-intro">
@@ -148,6 +152,7 @@
     </ul>
   {/if}
 </div>
+{/if}
 
 <style>
   .page-title {

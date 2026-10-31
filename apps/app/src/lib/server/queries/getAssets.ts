@@ -14,6 +14,35 @@ import { getActivelyAcceptedCveIds } from './remediation';
 
 const CVE_PAGE_SIZE = 100;
 
+// Matches MAX_SBOM_COMPONENTS in lib/server/sbom.ts — an import can't store
+// more than this, so the LIMIT only ever bites if that cap is raised without
+// revisiting the read side. Without it, the component aggregate below is an
+// unbounded per-pageview scan (security review 2026-10-31, finding #4).
+const COMPONENT_LIMIT = 500;
+
+const SEVERITY_BY_RANK = ['NONE', 'NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
+// Rank severities numerically in SQL. `MAX(c.severity)` sorts
+// lexicographically, so a component with CRITICAL and NONE CVEs reported
+// "NONE" (review finding #5) — 'NONE' > 'CRITICAL' as text.
+const SEVERITY_RANK_SQL = `CASE c.severity
+           WHEN 'CRITICAL' THEN 5 WHEN 'HIGH' THEN 4 WHEN 'MEDIUM' THEN 3
+           WHEN 'LOW' THEN 2 WHEN 'NONE' THEN 1 ELSE 0 END`;
+
+/**
+ * Cursors are an opaque base64 offset. A hand-edited or truncated `?cursor=`
+ * makes `atob` throw, which on an SSR route is a 500 — decode defensively and
+ * fall back to the first page (review finding #11).
+ */
+function decodeCursor(cursor: string | undefined): number {
+  if (!cursor) return 0;
+  try {
+    return Math.max(0, Number.parseInt(atob(cursor), 10) || 0);
+  } catch {
+    return 0;
+  }
+}
+
 interface AssetRow {
   asset_id: number;
   name: string;
@@ -31,7 +60,7 @@ interface ComponentRow {
   purl: string | null;
   ecosystem: string | null;
   cve_count: number;
-  max_severity: string | null;
+  max_severity_rank: number | null;
   has_kev: number;
 }
 
@@ -44,6 +73,25 @@ interface CveMatchRow {
   epss_percentile: number | null;
   component_name: string;
   component_version: string | null;
+}
+
+/**
+ * KV-cached list response. The second statement in getAssets() is an
+ * unfiltered GROUP BY over the whole asset_component_match join — the exact
+ * uncached-aggregate-per-pageview shape that burned the 5M/day D1 read quota
+ * in ~7 hours on 2026-10-29 (CLAUDE.md, `d7033cf`). Asset matches only change
+ * when an operator imports or deletes, so every mutation route deletes this
+ * key explicitly (`invalidateAssetsList`) and the TTL is just a backstop —
+ * long enough that a key hammered continuously still costs ~1.4k KV writes/day
+ * against the 1k/day cap only in the absurd case, and realistically a handful.
+ */
+export const ASSETS_LIST_CACHE_KEY = 'assets:list';
+export const ASSETS_LIST_TTL = 60;
+
+/** Drop the cached asset list after any import/create/delete. */
+export async function invalidateAssetsList(cache: KVNamespace | undefined): Promise<void> {
+  if (!cache) return;
+  await cache.delete(ASSETS_LIST_CACHE_KEY);
 }
 
 /** GET /api/assets — all assets with component + vulnerability counts. */
@@ -114,7 +162,7 @@ export async function getAssetDetail(
     .prepare(
       `SELECT ac.component_id, ac.name, ac.version, ac.purl, ac.ecosystem,
               COUNT(DISTINCT m.cve_id)                         AS cve_count,
-              MAX(c.severity)                                  AS max_severity,
+              MAX(${SEVERITY_RANK_SQL})                        AS max_severity_rank,
               MAX(COALESCE(s.kev_listed, 0))                   AS has_kev
        FROM asset_component ac
        LEFT JOIN asset_component_match m ON m.component_id = ac.component_id
@@ -122,7 +170,8 @@ export async function getAssetDetail(
        LEFT JOIN cve_state s ON s.cve_id = m.cve_id
        WHERE ac.asset_id = ?
        GROUP BY ac.component_id
-       ORDER BY cve_count DESC, ac.name ASC`,
+       ORDER BY cve_count DESC, ac.name ASC
+       LIMIT ${COMPONENT_LIMIT}`,
     )
     .bind(assetId)
     .all<ComponentRow>();
@@ -134,13 +183,18 @@ export async function getAssetDetail(
     purl: c.purl,
     ecosystem: c.ecosystem,
     cveCount: c.cve_count,
-    maxSeverity: (c.max_severity as AssetComponentRow['maxSeverity']) ?? null,
+    // Rank 0 means "matched a CVE whose severity we don't know" and null/no
+    // matches means no severity at all — both render as null, not 'NONE'.
+    maxSeverity:
+      c.cve_count > 0 && c.max_severity_rank !== null && c.max_severity_rank > 0
+        ? (SEVERITY_BY_RANK[c.max_severity_rank] as AssetComponentRow['maxSeverity'])
+        : null,
     hasKev: c.has_kev === 1,
   }));
 
   // Matched CVEs across all components, deduped to the highest-signal row per
   // CVE, severity-ranked. Cursor = offset (simple + stable for a bounded set).
-  const offset = opts.cveCursor ? Math.max(0, Number.parseInt(atob(opts.cveCursor), 10) || 0) : 0;
+  const offset = decodeCursor(opts.cveCursor);
 
   const cveRes = await db
     .prepare(
@@ -154,9 +208,7 @@ export async function getAssetDetail(
        WHERE ac.asset_id = ?
        GROUP BY m.cve_id
        ORDER BY
-         CASE c.severity
-           WHEN 'CRITICAL' THEN 5 WHEN 'HIGH' THEN 4 WHEN 'MEDIUM' THEN 3
-           WHEN 'LOW' THEN 2 WHEN 'NONE' THEN 1 ELSE 0 END DESC,
+         ${SEVERITY_RANK_SQL} DESC,
          c.cvss_base DESC,
          m.cve_id ASC
        LIMIT ? OFFSET ?`,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
+  import AdminSignIn from '$lib/ui/AdminSignIn.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -50,6 +51,9 @@
   <title>Assets — Threat-Lens CVE Hub</title>
 </svelte:head>
 
+{#if !data.authed}
+<AdminSignIn what="The asset inventory" />
+{:else}
 <div class="page-assets">
   <h1 class="page-title">Asset Inventory</h1>
   <p class="page-intro">
@@ -125,6 +129,7 @@
     </div>
   {/if}
 </div>
+{/if}
 
 <style>
   .page-title {

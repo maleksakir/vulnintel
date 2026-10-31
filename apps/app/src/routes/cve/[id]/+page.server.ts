@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { CveDetailResponse } from '@threat-lens/contracts';
+import { adminPageGate } from '$lib/server/adminSession';
 import { getCveDetail } from '$lib/server/queries/getCveDetail';
 import { getRiskAcceptance } from '$lib/server/queries/remediation';
 import type { PageServerLoad } from './$types';
@@ -24,7 +25,7 @@ import type { PageServerLoad } from './$types';
 // exactly that reason: the helper can't express "cache hits, skip misses".
 const TTL = 300;
 
-export const load: PageServerLoad = async ({ params, platform }) => {
+export const load: PageServerLoad = async ({ params, url, platform, cookies }) => {
   const env = platform?.env;
   const db = env?.DB;
   if (!db) error(503, { message: 'Service unavailable', code: 'INTERNAL_ERROR' });
@@ -34,15 +35,26 @@ export const load: PageServerLoad = async ({ params, platform }) => {
     error(400, { message: 'Invalid CVE ID format', code: 'VALIDATION_ERROR' });
   }
 
+  // The CVE record itself is public. Our decision not to patch it is not:
+  // "risk accepted until 2027-03-01" tells a stranger exactly which
+  // vulnerability we're sitting on and for how long. So the acceptance banner
+  // and the accept/revoke panel are admin-only (security review 2026-10-31,
+  // finding #2), and `?token=` here signs the operator in for every other
+  // operator surface too.
+  //
+  // Skipping the query for anonymous visitors also removes one D1 read from
+  // the hottest page in the app, including on the cache-hit path.
+  const adminView = adminPageGate(url, cookies, env?.ADMIN_BEARER);
+
   // Risk acceptance is small, mutable, and NOT part of the cached CVE detail,
   // so fetch it directly every load (one indexed single-row read) — in both
   // the cache-hit and cache-miss paths below.
-  const riskAcceptance = await getRiskAcceptance(db, cveId);
+  const riskAcceptance = adminView ? await getRiskAcceptance(db, cveId) : null;
 
   const cacheKey = `cve:${cveId}`;
   if (env.CACHE) {
     const cached = await env.CACHE.get<CveDetailResponse>(cacheKey, 'json');
-    if (cached !== null) return { detail: cached, riskAcceptance };
+    if (cached !== null) return { detail: cached, riskAcceptance, adminView };
   }
 
   const detail = await getCveDetail(cveId, db);
@@ -56,5 +68,5 @@ export const load: PageServerLoad = async ({ params, platform }) => {
     );
   }
 
-  return { detail, riskAcceptance };
+  return { detail, riskAcceptance, adminView };
 };

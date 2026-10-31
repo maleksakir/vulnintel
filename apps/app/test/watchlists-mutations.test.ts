@@ -75,7 +75,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       expect(patch.status).toBe(200);
 
       const list = (await (
-        await SELF.fetch('http://localhost/api/watchlists')
+        await SELF.fetch('http://localhost/api/watchlists', { headers: AUTH })
       ).json()) as WatchlistListResponse;
       expect(list.watchlists[0]?.name).toBe('Perimeter v2');
       expect(list.watchlists[0]?.description).toBe('edge');
@@ -87,7 +87,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       });
       expect(del.status).toBe(200);
       const after = (await (
-        await SELF.fetch('http://localhost/api/watchlists')
+        await SELF.fetch('http://localhost/api/watchlists', { headers: AUTH })
       ).json()) as WatchlistListResponse;
       expect(after.watchlists).toHaveLength(0);
     });
@@ -129,7 +129,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       expect(body.backfilledMatches).toBe(2);
 
       const detail = (await (
-        await SELF.fetch(`http://localhost/api/watchlists/${id}`)
+        await SELF.fetch(`http://localhost/api/watchlists/${id}`, { headers: AUTH })
       ).json()) as WatchlistDetailResponse;
       expect(detail.matches.map((m) => m.cveId).sort()).toEqual(['CVE-2026-0001', 'CVE-2026-0002']);
       expect(detail.matchCounts.NEW).toBe(2);
@@ -165,7 +165,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       expect(del.status).toBe(200);
 
       const detail = (await (
-        await SELF.fetch(`http://localhost/api/watchlists/${id}`)
+        await SELF.fetch(`http://localhost/api/watchlists/${id}`, { headers: AUTH })
       ).json()) as WatchlistDetailResponse;
       expect(detail.subscriptions).toHaveLength(0);
       // The already-materialized match survives the subscription removal.
@@ -191,7 +191,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       expect(res.status).toBe(200);
 
       const detail = (await (
-        await SELF.fetch(`http://localhost/api/watchlists/${id}?status=RESOLVED`)
+        await SELF.fetch(`http://localhost/api/watchlists/${id}?status=RESOLVED`, { headers: AUTH })
       ).json()) as WatchlistDetailResponse;
       expect(detail.matches).toHaveLength(1);
       expect(detail.matches[0]).toMatchObject({
@@ -231,7 +231,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       const webhookId = ((await add.json()) as { webhookId: number }).webhookId;
 
       let detail = (await (
-        await SELF.fetch(`http://localhost/api/watchlists/${id}`)
+        await SELF.fetch(`http://localhost/api/watchlists/${id}`, { headers: AUTH })
       ).json()) as WatchlistDetailResponse;
       expect(detail.webhooks).toHaveLength(1);
       expect(detail.webhooks[0]).toMatchObject({ kind: 'slack', enabled: true });
@@ -242,7 +242,7 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       });
       expect(del.status).toBe(200);
       detail = (await (
-        await SELF.fetch(`http://localhost/api/watchlists/${id}`)
+        await SELF.fetch(`http://localhost/api/watchlists/${id}`, { headers: AUTH })
       ).json()) as WatchlistDetailResponse;
       expect(detail.webhooks).toHaveLength(0);
     });

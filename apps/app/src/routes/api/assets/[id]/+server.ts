@@ -1,7 +1,8 @@
 import { isAdminAuthorized } from '$lib/server/adminAuth';
+import { isAdminRequest } from '$lib/server/adminSession';
 import { errorResponse } from '$lib/server/errorResponse';
 import { deleteAsset } from '$lib/server/queries/assetMutations';
-import { getAssetDetail } from '$lib/server/queries/getAssets';
+import { getAssetDetail, invalidateAssetsList } from '$lib/server/queries/getAssets';
 import { checkRateLimit } from '$lib/server/quota';
 import type { RequestHandler } from './$types';
 
@@ -11,8 +12,12 @@ function parseId(raw: string | undefined): number | null {
 }
 
 // GET /api/assets/[id] — components + a page of matched CVEs.
-export const GET: RequestHandler = async ({ params, url, platform, locals }) => {
+// Operator-only: an SBOM is a list of exact library versions we run.
+export const GET: RequestHandler = async ({ params, url, request, platform, cookies, locals }) => {
   const env = platform!.env;
+  if (!isAdminRequest(request, cookies, env.ADMIN_BEARER)) {
+    return errorResponse('UNAUTHORIZED', 'Admin bearer token required.', locals.cfRay, 403);
+  }
   const rate = await checkRateLimit(env.RATE_LIMITER, locals.clientIp);
   if (!rate.allowed) {
     return errorResponse(
@@ -55,6 +60,7 @@ export const DELETE: RequestHandler = async ({ params, request, platform, locals
   }
 
   const ok = await deleteAsset(env.DB, assetId);
+  await invalidateAssetsList(env.CACHE);
   if (!ok) {
     return errorResponse('ASSET_NOT_FOUND', `Asset ${assetId} not found.`, locals.cfRay, 404);
   }

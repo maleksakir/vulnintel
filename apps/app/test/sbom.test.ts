@@ -56,7 +56,7 @@ describe('parseCycloneDxSbom', () => {
     expect(parseCycloneDxSbom({ bomFormat: 'CycloneDX' }).ok).toBe(false); // no components array
   });
 
-  it('parses a minimal valid BOM and derives ecosystem/vendor/product from purls', () => {
+  it("stores the OSV ecosystem string in OSV's casing, and no guessed CPE", () => {
     const sbom = {
       bomFormat: 'CycloneDX',
       specVersion: '1.5',
@@ -77,11 +77,54 @@ describe('parseCycloneDxSbom', () => {
     expect(r.components[0]).toMatchObject({
       name: 'log4j-core',
       version: '2.14.1',
-      ecosystem: 'maven',
-      cpeVendor: 'org.apache.logging.log4j',
-      cpeProduct: 'log4j-core',
+      // OSV publishes (and cve_osv_affected stores) 'Maven', not 'maven' —
+      // storing the lowercased purl type could only ever match 'npm'.
+      ecosystem: 'Maven',
+      // No `cpe` field on the component, so no CPE identity. The purl
+      // namespace 'org.apache.logging.log4j' is a Maven groupId and never
+      // equals NVD's CPE vendor ('apache'), so guessing it produced a
+      // permanently unmatchable value.
+      cpeVendor: null,
+      cpeProduct: null,
     });
-    expect(r.components[1]!.ecosystem).toBe('pypi');
+    expect(r.components[1]!.ecosystem).toBe('PyPI');
+  });
+
+  it('takes CPE vendor/product only from an explicit cpe field', () => {
+    const r = parseCycloneDxSbom({
+      bomFormat: 'CycloneDX',
+      components: [
+        {
+          type: 'operating-system',
+          name: 'log4j',
+          version: '2.14.1',
+          cpe: 'cpe:2.3:a:apache:log4j:2.14.1:*:*:*:*:*:*:*',
+        },
+      ],
+    });
+    expect(r.components[0]).toMatchObject({ cpeVendor: 'apache', cpeProduct: 'log4j' });
+  });
+
+  it('ignores a cpe with wildcard vendor/product or a non-2.3 prefix', () => {
+    const wildcard = parseCycloneDxSbom({
+      bomFormat: 'CycloneDX',
+      components: [{ name: 'x', cpe: 'cpe:2.3:a:*:*:*:*:*:*:*:*:*:*' }],
+    });
+    expect(wildcard.components[0]).toMatchObject({ cpeVendor: null, cpeProduct: null });
+
+    const v22 = parseCycloneDxSbom({
+      bomFormat: 'CycloneDX',
+      components: [{ name: 'x', cpe: 'cpe:/a:apache:log4j:2.14.1' }],
+    });
+    expect(v22.components[0]).toMatchObject({ cpeVendor: null, cpeProduct: null });
+  });
+
+  it('maps an ecosystem OSV does not cover to null', () => {
+    const r = parseCycloneDxSbom({
+      bomFormat: 'CycloneDX',
+      components: [{ name: 'widget', purl: 'pkg:generic/acme/widget@1.0' }],
+    });
+    expect(r.components[0]!.ecosystem).toBeNull();
   });
 
   it('skips components with no name, counting them', () => {

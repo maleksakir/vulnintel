@@ -1,4 +1,5 @@
 import { isAdminAuthorized } from '$lib/server/adminAuth';
+import { isAdminRequest } from '$lib/server/adminSession';
 import { errorResponse } from '$lib/server/errorResponse';
 import { getWatchlists } from '$lib/server/queries/getWatchlists';
 import { createWatchlist } from '$lib/server/queries/watchlistMutations';
@@ -11,8 +12,14 @@ import type { RequestHandler } from './$types';
 // human-managed watchlist count). No KV cache: the list changes whenever a
 // reconciliation run adds matches or an admin edits a watchlist, and the
 // payload is small; the per-IP throttle is the cost guard.
-export const GET: RequestHandler = async ({ platform, locals }) => {
+// Operator-only (see $lib/server/adminSession.ts): which vendors we watch is
+// a map of what we run.
+export const GET: RequestHandler = async ({ request, platform, cookies, locals }) => {
   const env = platform!.env;
+
+  if (!isAdminRequest(request, cookies, env.ADMIN_BEARER)) {
+    return errorResponse('UNAUTHORIZED', 'Admin bearer token required.', locals.cfRay, 403);
+  }
 
   const rate = await checkRateLimit(env.RATE_LIMITER, locals.clientIp);
   if (!rate.allowed) {

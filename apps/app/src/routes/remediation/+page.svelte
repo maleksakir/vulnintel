@@ -1,6 +1,7 @@
 <script lang="ts">
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
+  import AdminSignIn from '$lib/ui/AdminSignIn.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -47,6 +48,9 @@
   <title>Remediation — Threat-Lens CVE Hub</title>
 </svelte:head>
 
+{#if !data.authed}
+<AdminSignIn what="The risk-acceptance register" />
+{:else}
 <div class="page-remediation">
   <h1 class="page-title">Remediation — Risk Acceptances</h1>
   <p class="page-intro">
@@ -121,6 +125,7 @@
     {/if}
   {/if}
 </div>
+{/if}
 
 <style>
   .page-title {

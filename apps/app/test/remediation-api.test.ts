@@ -32,7 +32,7 @@ describe('remediation / risk acceptance API', { timeout: 30_000 }, () => {
     expect(res.status).toBe(200);
 
     const list = (await (
-      await SELF.fetch('http://localhost/api/remediation')
+      await SELF.fetch('http://localhost/api/remediation', { headers: AUTH })
     ).json()) as RiskAcceptanceListResponse;
     expect(list.acceptances).toHaveLength(1);
     expect(list.acceptances[0]).toMatchObject({
@@ -40,6 +40,15 @@ describe('remediation / risk acceptance API', { timeout: 30_000 }, () => {
       justification: 'compensating control in place',
       active: true,
     });
+  });
+
+  it('requires admin auth to READ the register — it is an unpatched-CVE list', async () => {
+    const res = await SELF.fetch('http://localhost/api/remediation');
+    expect(res.status).toBe(403);
+
+    const page = await SELF.fetch('http://localhost/remediation');
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('Operator sign-in required');
   });
 
   it('requires admin auth to accept', async () => {
@@ -88,7 +97,7 @@ describe('remediation / risk acceptance API', { timeout: 30_000 }, () => {
       .run();
 
     const list = (await (
-      await SELF.fetch('http://localhost/api/remediation')
+      await SELF.fetch('http://localhost/api/remediation', { headers: AUTH })
     ).json()) as RiskAcceptanceListResponse;
     const row = list.acceptances.find((a) => a.cveId === 'CVE-2025-9999');
     expect(row).toBeDefined();
@@ -141,7 +150,9 @@ describe('remediation / risk acceptance API', { timeout: 30_000 }, () => {
       body: JSON.stringify({ justification: 'accepted', expiresAt: future(30) }),
     });
 
-    const detail = (await (await SELF.fetch('http://localhost/api/watchlists/1')).json()) as {
+    const detail = (await (
+      await SELF.fetch('http://localhost/api/watchlists/1', { headers: AUTH })
+    ).json()) as {
       matches: { cveId: string; riskAccepted: boolean }[];
     };
     const m = detail.matches.find((x) => x.cveId === 'CVE-2026-7777');

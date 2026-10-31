@@ -3,9 +3,55 @@ import type { AssetComponentInput } from '@threat-lens/contracts';
 // CycloneDX SBOM parsing + PURL handling. Pure, no I/O — the actual matching
 // against cve_osv_affected / cpe lives in assetMutations.ts.
 
-// Bound a single import so a pathological SBOM can't blow the request budget
-// (component count drives per-component match work downstream).
-export const MAX_SBOM_COMPONENTS = 2000;
+// Bound a single import. This is the hard ceiling on the work importSbom does
+// in one request; see that function's query-budget comment for how 500
+// components maps to a bounded D1 query count under the 50-per-invocation cap.
+export const MAX_SBOM_COMPONENTS = 500;
+
+/**
+ * purl type → OSV ecosystem string, EXACTLY as OSV publishes it (and as
+ * `cve_osv_affected.ecosystem` stores it — `osvPatch.ts` writes
+ * `pkg.ecosystem` raw). These are case-sensitive on OSV's side ('Maven',
+ * 'PyPI', 'crates.io'), so a lowercased purl type can never equal them
+ * directly — this map is what makes PURL matching actually work against
+ * ingested data. Mirrors adapters/osv.ts's OSV_ECOSYSTEM_DIRS.
+ */
+const PURL_TYPE_TO_OSV_ECOSYSTEM: Record<string, string> = {
+  npm: 'npm',
+  pypi: 'PyPI',
+  maven: 'Maven',
+  golang: 'Go',
+  cargo: 'crates.io',
+  composer: 'Packagist',
+  nuget: 'NuGet',
+  gem: 'RubyGems',
+};
+
+/** The OSV ecosystem for a purl type, or null when OSV doesn't cover it. */
+export function osvEcosystemForPurlType(purlType: string): string | null {
+  return PURL_TYPE_TO_OSV_ECOSYSTEM[purlType.toLowerCase()] ?? null;
+}
+
+/**
+ * The package name as OSV stores it for this ecosystem, which is NOT always
+ * the bare purl name:
+ *   - Maven:  groupId:artifactId   (purl namespace + ':' + name)
+ *   - npm:    @scope/name          (purl namespace + '/' + name)
+ *   - Go:     full module path     (purl namespace + '/' + name)
+ *   - others: the bare name
+ */
+export function osvPackageName(purlType: string, namespace: string | null, name: string): string {
+  if (namespace === null || namespace.length === 0) return name;
+  switch (purlType.toLowerCase()) {
+    case 'maven':
+      return `${namespace}:${name}`;
+    case 'npm':
+    case 'golang':
+      return `${namespace}/${name}`;
+    default:
+      return name;
+  }
+}
 
 interface CycloneDxComponent {
   name?: unknown;
@@ -70,22 +116,48 @@ export function parseCycloneDxSbom(raw: unknown): ParsedSbom {
     const version = typeof c.version === 'string' && c.version.length > 0 ? c.version : null;
     const parsed = purl ? parsePurl(purl) : null;
 
-    // CPE fallback identity: prefer the parsed purl namespace/name; if the
-    // component carries an explicit CPE, that's a stronger vendor/product
-    // signal, but parsing a full CPE 2.3 URI is deferred — the purl-derived
-    // vendor/product covers the common case and OS packages rarely carry a
-    // purl anyway.
+    // CPE identity comes ONLY from an explicit `cpe` field on the component,
+    // never guessed from the purl. A purl namespace is a groupId/scope
+    // ('org.apache.logging.log4j', '@babel') and never equals NVD's CPE vendor
+    // ('apache'), so guessing produced either zero matches or — worse, if
+    // matched loosely on product alone — cross-vendor false positives. A
+    // component with neither a usable purl nor an explicit CPE simply doesn't
+    // match, which is the honest outcome.
+    const cpe = typeof c.cpe === 'string' ? parseCpe23(c.cpe) : null;
+
+    // `ecosystem` stores the OSV ecosystem string (OSV's exact casing), not
+    // the lowercased purl type, because that's what cve_osv_affected holds.
     out.push({
       name: c.name,
       version,
       purl,
-      ecosystem: parsed?.ecosystem ?? null,
-      cpeVendor: parsed?.vendor ?? null,
-      cpeProduct: parsed?.product ?? null,
+      ecosystem: parsed ? osvEcosystemForPurlType(parsed.ecosystem) : null,
+      cpeVendor: cpe?.vendor ?? null,
+      cpeProduct: cpe?.product ?? null,
     });
   }
 
   return { ok: true, components: out, skipped };
+}
+
+/**
+ * Parse the vendor/product out of a CPE 2.3 formatted-string URI:
+ *   cpe:2.3:part:vendor:product:version:...
+ * Returns null for anything that isn't a cpe:2.3 string with both fields
+ * present. Lowercased to match NVD's normalization of `cpe.vendor`/`product`.
+ */
+export function parseCpe23(cpe: string): { vendor: string; product: string } | null {
+  if (!cpe.startsWith('cpe:2.3:')) return null;
+  // Split on unescaped colons. CPE escapes literal colons as '\:'.
+  const parts = cpe.split(/(?<!\\):/);
+  // [cpe, 2.3, part, vendor, product, ...]
+  const vendor = parts[3];
+  const product = parts[4];
+  if (!vendor || !product || vendor === '*' || product === '*') return null;
+  return {
+    vendor: vendor.replace(/\\/g, '').toLowerCase(),
+    product: product.replace(/\\/g, '').toLowerCase(),
+  };
 }
 
 export interface ParsedPurl {

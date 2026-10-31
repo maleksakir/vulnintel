@@ -10,6 +10,11 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 const now = Date.now();
 
+// The watchlist read surface is operator-only (what we monitor is a map of
+// what we run), so every GET carries the admin bearer. ADMIN_BEARER =
+// 'test-admin-token' (vitest.config.ts).
+const AUTH = { Authorization: 'Bearer test-admin-token' };
+
 async function seedCve(cveId: string, severity = 'HIGH', kev = false): Promise<void> {
   await env.DB.batch([
     env.DB.prepare(
@@ -68,6 +73,20 @@ describe('watchlists read API', { timeout: 30_000 }, () => {
     await reset();
   });
 
+  it('rejects reads without the admin bearer', async () => {
+    await seedWatchlist(1, 'Perimeter');
+    expect((await SELF.fetch('http://localhost/api/watchlists')).status).toBe(403);
+    expect((await SELF.fetch('http://localhost/api/watchlists/1')).status).toBe(403);
+
+    const page = await SELF.fetch('http://localhost/watchlists');
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain('Operator sign-in required');
+
+    // The detail page has no body to render alongside a prompt, so it 403s.
+    const detailPage = await SELF.fetch('http://localhost/watchlists/1');
+    expect(detailPage.status).toBe(403);
+  });
+
   it('GET /api/watchlists returns summaries with subscription + per-status match counts', async () => {
     await seedWatchlist(1, 'Perimeter');
     await seedSubscription(1, 'acme', null);
@@ -77,7 +96,7 @@ describe('watchlists read API', { timeout: 30_000 }, () => {
     await seedMatch(1, 'CVE-2026-0001', 'NEW', now);
     await seedMatch(1, 'CVE-2026-0002', 'RESOLVED', now);
 
-    const res = await SELF.fetch('http://localhost/api/watchlists');
+    const res = await SELF.fetch('http://localhost/api/watchlists', { headers: AUTH });
     expect(res.status).toBe(200);
     const body = (await res.json()) as WatchlistListResponse;
 
@@ -96,7 +115,7 @@ describe('watchlists read API', { timeout: 30_000 }, () => {
     await seedCve('CVE-2026-1001', 'CRITICAL', true);
     await seedMatch(7, 'CVE-2026-1001', 'NEW', now);
 
-    const res = await SELF.fetch('http://localhost/api/watchlists/7');
+    const res = await SELF.fetch('http://localhost/api/watchlists/7', { headers: AUTH });
     expect(res.status).toBe(200);
     const body = (await res.json()) as WatchlistDetailResponse;
 
@@ -119,7 +138,7 @@ describe('watchlists read API', { timeout: 30_000 }, () => {
     await seedMatch(3, 'CVE-2026-2001', 'NEW', now);
     await seedMatch(3, 'CVE-2026-2002', 'IGNORED', now);
 
-    const res = await SELF.fetch('http://localhost/api/watchlists/3?status=NEW');
+    const res = await SELF.fetch('http://localhost/api/watchlists/3?status=NEW', { headers: AUTH });
     const body = (await res.json()) as WatchlistDetailResponse;
     expect(body.matches.map((m) => m.cveId)).toEqual(['CVE-2026-2001']);
     // Counts reflect ALL statuses regardless of the filter.
@@ -128,14 +147,14 @@ describe('watchlists read API', { timeout: 30_000 }, () => {
   });
 
   it('GET /api/watchlists/[id] 404s for a non-existent watchlist', async () => {
-    const res = await SELF.fetch('http://localhost/api/watchlists/999');
+    const res = await SELF.fetch('http://localhost/api/watchlists/999', { headers: AUTH });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('WATCHLIST_NOT_FOUND');
   });
 
   it('GET /api/watchlists/[id] 400s on an invalid id', async () => {
-    const res = await SELF.fetch('http://localhost/api/watchlists/not-a-number');
+    const res = await SELF.fetch('http://localhost/api/watchlists/not-a-number', { headers: AUTH });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('VALIDATION_ERROR');
@@ -146,7 +165,7 @@ describe('watchlists read API', { timeout: 30_000 }, () => {
     // Match exists but no cve row (hard-deleted / aged out).
     await seedMatch(5, 'CVE-2020-9999', 'ACKNOWLEDGED', now);
 
-    const res = await SELF.fetch('http://localhost/api/watchlists/5');
+    const res = await SELF.fetch('http://localhost/api/watchlists/5', { headers: AUTH });
     const body = (await res.json()) as WatchlistDetailResponse;
     expect(body.matches).toHaveLength(1);
     expect(body.matches[0]).toMatchObject({

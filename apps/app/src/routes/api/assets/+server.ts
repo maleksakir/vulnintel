@@ -1,14 +1,25 @@
 import { isAdminAuthorized } from '$lib/server/adminAuth';
+import { isAdminRequest } from '$lib/server/adminSession';
+import { cacheReadJson } from '$lib/server/cacheRead';
 import { errorResponse } from '$lib/server/errorResponse';
 import { createAsset } from '$lib/server/queries/assetMutations';
-import { getAssets } from '$lib/server/queries/getAssets';
+import {
+  ASSETS_LIST_CACHE_KEY,
+  ASSETS_LIST_TTL,
+  getAssets,
+  invalidateAssetsList,
+} from '$lib/server/queries/getAssets';
 import { checkRateLimit } from '$lib/server/quota';
 import { validateCreateAsset } from '$lib/server/validate/index';
 import type { RequestHandler } from './$types';
 
 // GET /api/assets — inventory list with component + vulnerability counts.
-export const GET: RequestHandler = async ({ platform, locals }) => {
+// Operator-only: the asset list names our own systems (see adminSession.ts).
+export const GET: RequestHandler = async ({ request, platform, cookies, locals }) => {
   const env = platform!.env;
+  if (!isAdminRequest(request, cookies, env.ADMIN_BEARER)) {
+    return errorResponse('UNAUTHORIZED', 'Admin bearer token required.', locals.cfRay, 403);
+  }
   const rate = await checkRateLimit(env.RATE_LIMITER, locals.clientIp);
   if (!rate.allowed) {
     return errorResponse(
@@ -19,7 +30,11 @@ export const GET: RequestHandler = async ({ platform, locals }) => {
       { retryAfterSeconds: 60 },
     );
   }
-  const data = await getAssets(env.DB);
+  const data = env.CACHE
+    ? await cacheReadJson(env.CACHE, ASSETS_LIST_CACHE_KEY, ASSETS_LIST_TTL, () =>
+        getAssets(env.DB),
+      )
+    : await getAssets(env.DB);
   return new Response(JSON.stringify(data), {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });
@@ -47,6 +62,7 @@ export const POST: RequestHandler = async ({ request, platform, locals }) => {
   }
 
   const assetId = await createAsset(env.DB, v.value.name, v.value.description);
+  await invalidateAssetsList(env.CACHE);
   return new Response(JSON.stringify({ assetId }), {
     status: 201,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },

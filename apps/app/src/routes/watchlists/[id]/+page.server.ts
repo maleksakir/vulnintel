@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import type { WatchlistMatchStatus } from '@threat-lens/contracts';
+import { requireAdminPage } from '$lib/server/adminSession';
 import { getWatchlistDetail } from '$lib/server/queries/getWatchlists';
 import type { PageServerLoad } from './$types';
 
@@ -11,8 +12,12 @@ const VALID_STATUSES: ReadonlySet<string> = new Set([
   'IGNORED',
 ]);
 
-export const load: PageServerLoad = async ({ params, url, platform }) => {
-  const db = platform?.env?.DB;
+// Operator-only (see $lib/server/adminSession.ts). Gated before any D1 read.
+export const load: PageServerLoad = async ({ params, url, platform, cookies }) => {
+  const env = platform?.env;
+  requireAdminPage(url, cookies, env?.ADMIN_BEARER);
+
+  const db = env?.DB;
   if (!db) error(503, { message: 'Service unavailable', code: 'INTERNAL_ERROR' });
 
   const watchlistId = Number.parseInt(params.id ?? '', 10);

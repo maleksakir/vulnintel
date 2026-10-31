@@ -89,7 +89,13 @@
     </p>
   </header>
 
-  <!-- Risk acceptance (remediation) -->
+  <!--
+    Risk acceptance (remediation) — operator-only. The CVE itself is public
+    data; our decision to leave it unpatched until a given date is not, so the
+    banner and the accept/revoke panel only render for a signed-in operator
+    (`?token=<ADMIN_BEARER>`). See src/lib/server/adminSession.ts.
+  -->
+  {#if data.adminView}
   {#if acceptance && acceptance.active}
     <div class="risk-banner" role="status">
       <div>
@@ -123,6 +129,7 @@
       {#if errorMsg}<p class="risk-error" role="alert">{errorMsg}</p>{/if}
     </div>
   </details>
+  {/if}
 
   <!-- Description -->
   <section class="cve-section" aria-labelledby="desc-heading">
