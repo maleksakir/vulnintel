@@ -274,6 +274,33 @@ export function validateCreateSubscription(
   return { ok: true, value: { vendor, product } };
 }
 
+export function validateCreateAsset(
+  body: unknown,
+): Validated<{ name: string; description?: string }> {
+  if (typeof body !== 'object' || body === null) {
+    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
+  }
+  const b = body as Record<string, unknown>;
+  const errors: Record<string, string> = {};
+
+  const name = typeof b.name === 'string' ? b.name.trim() : '';
+  if (name.length < 1 || name.length > NAME_MAX) {
+    errors.name = `Must be a string of 1–${NAME_MAX} characters`;
+  }
+
+  let description: string | undefined;
+  if (b.description !== undefined && b.description !== null) {
+    if (typeof b.description !== 'string' || b.description.length > DESC_MAX) {
+      errors.description = `Must be a string of at most ${DESC_MAX} characters`;
+    } else {
+      description = b.description;
+    }
+  }
+
+  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
+  return { ok: true, value: { name, ...(description !== undefined && { description }) } };
+}
+
 const WEBHOOK_KINDS = new Set(['generic', 'slack']);
 const URL_MAX = 2048;
 

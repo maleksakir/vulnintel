@@ -37,6 +37,17 @@ export type {
   SearchResultItem,
 } from './api.js';
 export type {
+  AssetComponentInput,
+  AssetComponentRow,
+  AssetCveRow,
+  AssetDetailResponse,
+  AssetListResponse,
+  AssetMatchVia,
+  AssetSummary,
+  CreateAssetRequest,
+  SbomImportResult,
+} from './asset.js';
+export type {
   EpssPatch,
   EpssQueueMessage,
   IngestSource,
@@ -56,6 +67,7 @@ export type {
   Severity,
   SsvcDecision,
 } from './cve.js';
+
 export type { EmbedFn } from './embed.js';
 export { EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL } from './embed.js';
 export type {
