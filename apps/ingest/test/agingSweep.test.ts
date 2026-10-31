@@ -106,3 +106,86 @@ describe('runAgingSweep cache invalidation', () => {
     expect(spies.cacheDelete).not.toHaveBeenCalled(); // nothing deleted → nothing invalidated
   });
 });
+
+describe('runAgingSweep orphaned match sweep', () => {
+  useCleanBindings();
+
+  /**
+   * watchlist_match.cve_id and asset_component_match.cve_id are deliberately
+   * NOT foreign keys (migrations 0009/0011), so the CVE hard-delete at the top
+   * of the sweep leaves them behind. Both migrations say this tail sweeps
+   * them; it didn't, so they accumulated against a 500MB D1 cap that a DELETE
+   * cannot reclaim.
+   */
+  it('prunes orphaned watchlist_match rows, except ones an analyst is mid-triage on', async () => {
+    const oldPublished = Date.now() - TWENTY_SIX_MONTHS_MS;
+    const now = Date.now();
+    await seedAgedCve('CVE-2023-7001', oldPublished);
+    await testEnv.DB.prepare(
+      `INSERT INTO watchlist (watchlist_id, name, created_at, updated_at) VALUES (1, 'w', ?, ?)`,
+    )
+      .bind(now, now)
+      .run();
+
+    // Four matches on the same (about to be deleted) CVE-less state: one per
+    // status that matters. Statuses live on separate CVEs so each is distinct.
+    for (const [cveId, status] of [
+      ['CVE-2019-0001', 'NEW'],
+      ['CVE-2019-0002', 'RESOLVED'],
+      ['CVE-2019-0003', 'IGNORED'],
+      ['CVE-2019-0004', 'TRIAGING'],
+      ['CVE-2019-0005', 'ACKNOWLEDGED'],
+    ] as const) {
+      await testEnv.DB.prepare(
+        `INSERT INTO watchlist_match (watchlist_id, cve_id, status, first_matched_at, status_updated_at)
+         VALUES (1, ?, ?, ?, ?)`,
+      )
+        .bind(cveId, status, now, now)
+        .run();
+    }
+
+    const ctx = createExecutionContext();
+    await runAgingSweep(testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const left = await testEnv.DB.prepare(
+      `SELECT cve_id FROM watchlist_match ORDER BY cve_id`,
+    ).all<{ cve_id: string }>();
+    // NEW (nobody looked) and the terminal statuses go; in-flight triage
+    // survives, which is the entire reason cve_id isn't a foreign key.
+    expect(left.results.map((r) => r.cve_id)).toEqual(['CVE-2019-0004', 'CVE-2019-0005']);
+  });
+
+  it('prunes orphaned asset_component_match rows', async () => {
+    const now = Date.now();
+    await seedAgedCve('CVE-2026-8001', now); // in-window, stays
+    await testEnv.DB.batch([
+      testEnv.DB.prepare(
+        `INSERT INTO asset (asset_id, name, created_at, updated_at, last_component_count)
+         VALUES (1, 'app', ?, ?, 1)`,
+      ).bind(now, now),
+      testEnv.DB.prepare(
+        `INSERT INTO asset_component (component_id, asset_id, name, created_at)
+         VALUES (1, 1, 'lib', ?)`,
+      ).bind(now),
+      // One match to a live CVE, one to a CVE that no longer exists.
+      testEnv.DB.prepare(
+        `INSERT INTO asset_component_match (component_id, cve_id, match_via, first_matched_at)
+         VALUES (1, 'CVE-2026-8001', 'PURL', ?)`,
+      ).bind(now),
+      testEnv.DB.prepare(
+        `INSERT INTO asset_component_match (component_id, cve_id, match_via, first_matched_at)
+         VALUES (1, 'CVE-2018-9999', 'PURL', ?)`,
+      ).bind(now),
+    ]);
+
+    const ctx = createExecutionContext();
+    await runAgingSweep(testEnv, ctx);
+    await waitOnExecutionContext(ctx);
+
+    const left = await testEnv.DB.prepare(
+      `SELECT cve_id FROM asset_component_match ORDER BY cve_id`,
+    ).all<{ cve_id: string }>();
+    expect(left.results.map((r) => r.cve_id)).toEqual(['CVE-2026-8001']);
+  });
+});

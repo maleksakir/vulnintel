@@ -59,4 +59,11 @@ export interface Env {
   NVD_API_KEY: string;
   CLOUDFLARE_API_TOKEN: string;
   CLOUDFLARE_ACCOUNT_ID: string;
+  // OPTIONAL. When set, watchlist webhook digests carry an
+  // `X-ThreatLens-Signature: sha256=<hmac>` header over the exact request
+  // body so a receiver can verify origin and reject forged/replayed posts
+  // (lib/server/watchlistNotify.ts). Unset means unsigned delivery, which is
+  // why it's optional rather than required: an unconfigured deploy must still
+  // notify. Set with `wrangler secret put WEBHOOK_SIGNING_SECRET`.
+  WEBHOOK_SIGNING_SECRET?: string;
 }

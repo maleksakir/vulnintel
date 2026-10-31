@@ -135,6 +135,36 @@ describe('watchlist mutations API', { timeout: 30_000 }, () => {
       expect(detail.matchCounts.NEW).toBe(2);
     });
 
+    it('re-adding a vendor-only subscription is idempotent, not a duplicate row', async () => {
+      // SQLite treats NULLs as distinct in a UNIQUE index, so an
+      // `ON CONFLICT (watchlist_id, vendor, product)` target never fired for
+      // the "all products" row and every re-add inserted another one — which
+      // then multiplied that vendor in the reconciliation engine's scan.
+      const id = await createWatchlistViaApi('Dupes');
+      await seedCveWithCpe('CVE-2026-1501', 'acme', 'widget');
+
+      const first = await SELF.fetch(`http://localhost/api/watchlists/${id}/subscriptions`, {
+        method: 'POST',
+        headers: AUTH,
+        body: JSON.stringify({ vendor: 'acme' }),
+      });
+      const second = await SELF.fetch(`http://localhost/api/watchlists/${id}/subscriptions`, {
+        method: 'POST',
+        headers: AUTH,
+        body: JSON.stringify({ vendor: 'acme' }),
+      });
+      expect(second.status).toBe(201);
+
+      const firstId = ((await first.json()) as { subscriptionId: number }).subscriptionId;
+      const secondId = ((await second.json()) as { subscriptionId: number }).subscriptionId;
+      expect(secondId).toBe(firstId);
+
+      const detail = (await (
+        await SELF.fetch(`http://localhost/api/watchlists/${id}`, { headers: AUTH })
+      ).json()) as WatchlistDetailResponse;
+      expect(detail.subscriptions).toHaveLength(1);
+    });
+
     it('lowercases vendor/product so it matches NVD-normalized cpe rows', async () => {
       const id = await createWatchlistViaApi('Case');
       await seedCveWithCpe('CVE-2026-1001', 'apache', 'http_server');

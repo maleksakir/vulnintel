@@ -3,7 +3,17 @@ import type { WatchlistMatchStatus } from '@threat-lens/contracts';
 // Write-side watchlist operations (admin-gated). Kept separate from the
 // read-side getWatchlists.ts. All timestamps unix ms.
 
-const BACKFILL_VENDOR_LIMIT = 5000; // cap a single subscription's backfill scan
+/**
+ * Cap on matches a single subscription's immediate backfill writes.
+ *
+ * Was 5,000, which is 5% of the entire 100k/day D1 free-tier write quota from
+ * one button press — twenty subscriptions and the day's writes are gone,
+ * including the ones ingestion needs. 500 is also the point past which a
+ * backfill stops being useful: nobody triages 5,000 NEW matches, and the
+ * reconciliation engine picks up the rest of a prolific vendor's CVEs as they
+ * are next modified.
+ */
+const BACKFILL_VENDOR_LIMIT = 500;
 
 export async function createWatchlist(
   db: D1Database,
@@ -90,25 +100,34 @@ export async function addSubscription(
 ): Promise<AddSubscriptionResult> {
   const now = Date.now();
 
-  // Upsert the subscription (the UNIQUE index treats NULL product as distinct
-  // from any concrete product, which is the intended "all products" row).
-  await db
-    .prepare(
-      `INSERT INTO watchlist_subscription (watchlist_id, vendor, product, created_at)
-       VALUES (?, ?, ?, ?)
-       ON CONFLICT (watchlist_id, vendor, product) DO NOTHING`,
-    )
-    .bind(watchlistId, vendor, product, now)
-    .run();
-
-  const subRow = await db
+  // Look first, then insert. ON CONFLICT cannot carry the "all products" row:
+  // SQLite treats NULLs as distinct in a UNIQUE index, so a conflict target of
+  // (watchlist_id, vendor, product) never fires when product IS NULL and every
+  // re-add of the same vendor-wide subscription inserted ANOTHER row — which
+  // then multiplied that vendor's rows in the reconciliation engine's
+  // subscription scan. `product IS ?` below binds NULL correctly (unlike `=`).
+  const existing = await db
     .prepare(
       `SELECT subscription_id FROM watchlist_subscription
        WHERE watchlist_id = ? AND vendor = ? AND product IS ?`,
     )
     .bind(watchlistId, vendor, product)
     .first<{ subscription_id: number }>();
-  if (!subRow) throw new Error('subscription upsert returned no id');
+
+  let subscriptionId: number;
+  if (existing) {
+    subscriptionId = existing.subscription_id;
+  } else {
+    const inserted = await db
+      .prepare(
+        `INSERT INTO watchlist_subscription (watchlist_id, vendor, product, created_at)
+         VALUES (?, ?, ?, ?) RETURNING subscription_id`,
+      )
+      .bind(watchlistId, vendor, product, now)
+      .first<{ subscription_id: number }>();
+    if (!inserted) throw new Error('subscription insert returned no id');
+    subscriptionId = inserted.subscription_id;
+  }
 
   // Targeted backfill: find CVEs whose CPEs match this subscription NOW, and
   // insert 'NEW' matches for any not already tracked. One read + one batched
@@ -120,18 +139,22 @@ export async function addSubscription(
   if (product !== null) binds.push(product);
   binds.push(BACKFILL_VENDOR_LIMIT);
 
+  // Newest-first, so when the cap bites it keeps the CVEs an operator
+  // actually cares about rather than an arbitrary slice.
   const cveRes = await db
     .prepare(
       `SELECT DISTINCT p.cve_id
        FROM cpe p
+       JOIN cve c ON c.cve_id = p.cve_id
        WHERE p.vendor = ? ${productClause}
+       ORDER BY c.last_modified_at DESC
        LIMIT ?`,
     )
     .bind(...binds)
     .all<{ cve_id: string }>();
 
   const cveIds = cveRes.results.map((r) => r.cve_id);
-  if (cveIds.length === 0) return { subscriptionId: subRow.subscription_id, backfilledMatches: 0 };
+  if (cveIds.length === 0) return { subscriptionId, backfilledMatches: 0 };
 
   // Batched insert of matches (ON CONFLICT DO NOTHING preserves any existing
   // triage). db.batch counts as one query regardless of statement count.
@@ -152,7 +175,7 @@ export async function addSubscription(
     );
   }
 
-  return { subscriptionId: subRow.subscription_id, backfilledMatches: cveIds.length };
+  return { subscriptionId, backfilledMatches: cveIds.length };
 }
 
 /** Returns false if the subscription doesn't exist on that watchlist.

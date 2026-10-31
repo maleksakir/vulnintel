@@ -6,7 +6,6 @@ import type {
   AssetMatchVia,
   AssetSummary,
 } from '@threat-lens/contracts';
-import { getActivelyAcceptedCveIds } from './remediation';
 
 // Asset read-side queries. Reads materialized asset_component_match rows
 // (populated at import time) joined to cve/cve_state — cheap indexed reads,
@@ -73,6 +72,7 @@ interface CveMatchRow {
   epss_percentile: number | null;
   component_name: string;
   component_version: string | null;
+  risk_accepted: number;
 }
 
 /**
@@ -196,32 +196,39 @@ export async function getAssetDetail(
   // CVE, severity-ranked. Cursor = offset (simple + stable for a bounded set).
   const offset = decodeCursor(opts.cveCursor);
 
+  // Risk-accepted CVEs sort LAST, not just render dimmed. Accepting a risk is
+  // a decision to stop looking at something; if a CRITICAL under an active
+  // acceptance still occupies the top of page 1, the acceptance changed a
+  // label and nothing else, and the list stays as noisy as it was (review
+  // finding #12). The join makes the demotion part of the ordering, so it
+  // survives pagination — sorting the page in memory could not.
   const cveRes = await db
     .prepare(
       `SELECT m.cve_id, m.match_via, c.severity, c.cvss_base,
               s.kev_listed, s.epss_percentile,
-              ac.name AS component_name, ac.version AS component_version
+              ac.name AS component_name, ac.version AS component_version,
+              CASE WHEN ra.cve_id IS NULL THEN 0 ELSE 1 END AS risk_accepted
        FROM asset_component_match m
        JOIN asset_component ac ON ac.component_id = m.component_id
        LEFT JOIN cve c ON c.cve_id = m.cve_id
        LEFT JOIN cve_state s ON s.cve_id = m.cve_id
+       LEFT JOIN cve_risk_acceptance ra
+              ON ra.cve_id = m.cve_id AND ra.expires_at > ?
        WHERE ac.asset_id = ?
        GROUP BY m.cve_id
        ORDER BY
+         risk_accepted ASC,
          ${SEVERITY_RANK_SQL} DESC,
          c.cvss_base DESC,
          m.cve_id ASC
        LIMIT ? OFFSET ?`,
     )
-    .bind(assetId, limit + 1, offset)
+    .bind(Date.now(), assetId, limit + 1, offset)
     .all<CveMatchRow>();
 
   const rows = cveRes.results;
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
-
-  // Flag CVEs under an active risk acceptance (one small indexed read).
-  const accepted = await getActivelyAcceptedCveIds(db);
 
   const cves: AssetCveRow[] = page.map((r) => ({
     cveId: r.cve_id,
@@ -232,7 +239,8 @@ export async function getAssetDetail(
     epssPercentile: r.epss_percentile,
     componentName: r.component_name,
     componentVersion: r.component_version,
-    riskAccepted: accepted.has(r.cve_id),
+    // From the ordering join above — no separate acceptance read needed.
+    riskAccepted: r.risk_accepted === 1,
   }));
 
   const cveCursor = hasMore ? btoa(String(offset + limit)) : null;

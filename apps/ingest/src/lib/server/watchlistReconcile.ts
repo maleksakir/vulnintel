@@ -50,6 +50,12 @@ interface ModifiedCpeRow {
   last_modified_at: number;
 }
 
+/** Test-only bound overrides; see reconcileWatchlistMatches. */
+export interface ReconcileOptions {
+  maxCvesPerRun?: number;
+  vendorChunkSize?: number;
+}
+
 export interface ReconcileResult {
   cvesScanned: number;
   matchesWritten: number;
@@ -79,7 +85,14 @@ export interface ReconcileResult {
 export async function reconcileWatchlistMatches(
   env: Env,
   now: number = Date.now(),
+  opts: ReconcileOptions = {},
 ): Promise<ReconcileResult> {
+  // Both bounds are overridable DOWNWARD only (never above the constants), so
+  // a test can reproduce a saturated multi-chunk scan without seeding 4,000
+  // CVEs across 99 vendors. The 100-bound-parameter cap is still enforced by
+  // the clamp on vendorChunkSize.
+  const maxCvesPerRun = Math.min(opts.maxCvesPerRun ?? MAX_CVES_PER_RUN, MAX_CVES_PER_RUN);
+  const vendorChunkSize = Math.min(opts.vendorChunkSize ?? VENDOR_CHUNK_SIZE, VENDOR_CHUNK_SIZE);
   // ── Subscriptions first: if none, there is nothing to match. ─────────────
   const subsRes = await env.DB.prepare(
     `SELECT watchlist_id, vendor, product FROM watchlist_subscription`,
@@ -137,8 +150,16 @@ export async function reconcileWatchlistMatches(
   // (cve_id, vendor, product) for CVEs modified since the cursor whose vendor
   // is subscribed. Chunked by the vendor set at the 100-param cap.
   const cpeRows: ModifiedCpeRow[] = [];
-  for (let i = 0; i < vendors.length; i += VENDOR_CHUNK_SIZE) {
-    const chunk = vendors.slice(i, i + VENDOR_CHUNK_SIZE);
+  // The LIMIT is applied PER CHUNK, so each chunk has its own high-water mark
+  // and its own answer to "did I see everything in the window?". If any chunk
+  // came back saturated it still has unprocessed rows above its own newest
+  // row, so the cursor may only advance to the LOWEST saturated chunk's mark —
+  // advancing to the global maximum (as this did) silently skipped every
+  // unprocessed row below it, permanently, for anyone with more than 98
+  // subscribed vendors.
+  let saturatedFloorMs: number | null = null;
+  for (let i = 0; i < vendors.length; i += vendorChunkSize) {
+    const chunk = vendors.slice(i, i + vendorChunkSize);
     const placeholders = chunk.map(() => '?').join(',');
     const res = await env.DB.prepare(
       `SELECT DISTINCT p.cve_id, p.vendor, p.product, c.last_modified_at
@@ -149,9 +170,16 @@ export async function reconcileWatchlistMatches(
        ORDER BY c.last_modified_at ASC
        LIMIT ?`,
     )
-      .bind(...chunk, sinceMs, MAX_CVES_PER_RUN)
+      .bind(...chunk, sinceMs, maxCvesPerRun)
       .all<ModifiedCpeRow>();
     cpeRows.push(...res.results);
+
+    if (res.results.length >= maxCvesPerRun) {
+      // Ordered ASC, so the last row is this chunk's newest processed CVE.
+      const chunkMax = res.results[res.results.length - 1]!.last_modified_at;
+      saturatedFloorMs =
+        saturatedFloorMs === null ? chunkMax : Math.min(saturatedFloorMs, chunkMax);
+    }
   }
 
   if (cpeRows.length === 0) {
@@ -201,15 +229,26 @@ export async function reconcileWatchlistMatches(
     matchesWritten += sub.length;
   }
 
-  // ── Advance the cursor to the newest CVE actually processed. If we hit the
-  // MAX_CVES_PER_RUN cap, maxModified is the newest of the capped set, so the
-  // next run resumes from there rather than skipping the unprocessed tail. ──
-  await bumpCursor(env, maxModified, now);
+  // ── Advance the cursor. With no saturated chunk, every in-window row was
+  // processed and the newest one is a safe resume point. With one or more
+  // saturated chunks, the resume point is the LOWEST of their high-water
+  // marks: anything above that in a saturated chunk hasn't been read yet.
+  // The next run re-reads the overlap and re-upserts (ON CONFLICT DO NOTHING
+  // preserves triage), so re-scanning is free of side effects.
+  //
+  // Residual: if a single millisecond holds more than MAX_CVES_PER_RUN
+  // matching rows, the floor equals the current cursor and it stops advancing.
+  // Matches still get written every run (the scan restarts from the same
+  // point), so nothing is lost — it just can't move past that cluster. At
+  // 2,000 rows sharing one millisecond of NVD last_modified this is a
+  // theoretical case, not an operational one.
+  const cursorTargetMs = saturatedFloorMs ?? maxModified;
+  await bumpCursor(env, cursorTargetMs, now);
 
   return {
     cvesScanned: scannedCves.size,
     matchesWritten,
-    cursorAdvancedToMs: maxModified,
+    cursorAdvancedToMs: cursorTargetMs,
   };
 }
 

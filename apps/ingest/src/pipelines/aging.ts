@@ -74,6 +74,39 @@ export async function runAgingSweep(env: Env, ctx: ExecutionContext): Promise<vo
       // window as audit_log, then prune. `IF NOT EXISTS`-created table (0012);
       // a plain DELETE is a no-op if the table somehow isn't there yet.
       env.DB.prepare('DELETE FROM cve_risk_acceptance WHERE expires_at < ?').bind(auditCutoffMs),
+      // Orphaned match rows. watchlist_match.cve_id and
+      // asset_component_match.cve_id are deliberately NOT foreign keys
+      // (migrations 0009/0011 — a match must survive a CVE that hasn't been
+      // ingested yet), so the CASCADE above doesn't reach them and the CVE
+      // delete at the top of this sweep leaves them behind. Both migrations
+      // say this tail sweeps them; until now it didn't, so they accumulated
+      // against a 500MB D1 cap that a DELETE cannot reclaim. Bounded by
+      // DELETE_BATCH_SIZE per run; the tables are small, so one batch a day
+      // keeps up.
+      // Both tables are WITHOUT ROWID, so the bound set is a batch of DISTINCT
+      // orphaned cve_ids rather than rowids. Row count per run is therefore
+      // DELETE_BATCH_SIZE x (watchlists/components referencing those CVEs),
+      // still bounded, and the next run picks up any remainder.
+      //
+      // Only NEW (nobody looked at it) and terminal RESOLVED/IGNORED matches
+      // go — exactly what 0009 promises. TRIAGING and ACKNOWLEDGED mean an
+      // analyst is mid-decision, and 0009's whole reason for not making
+      // cve_id a foreign key is that such a decision must outlive its CVE.
+      env.DB.prepare(
+        `DELETE FROM watchlist_match WHERE cve_id IN (
+           SELECT DISTINCT m.cve_id FROM watchlist_match m
+           WHERE m.status IN ('NEW','RESOLVED','IGNORED')
+             AND NOT EXISTS (SELECT 1 FROM cve c WHERE c.cve_id = m.cve_id)
+           LIMIT ?
+         ) AND status IN ('NEW','RESOLVED','IGNORED')`,
+      ).bind(DELETE_BATCH_SIZE),
+      env.DB.prepare(
+        `DELETE FROM asset_component_match WHERE cve_id IN (
+           SELECT DISTINCT m.cve_id FROM asset_component_match m
+           WHERE NOT EXISTS (SELECT 1 FROM cve c WHERE c.cve_id = m.cve_id)
+           LIMIT ?
+         )`,
+      ).bind(DELETE_BATCH_SIZE),
     ]);
 
     // Rebuild cpe_search FTS after bulk delete (one-shot cheaper than

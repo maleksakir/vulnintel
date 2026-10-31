@@ -206,3 +206,74 @@ describe('reconcileWatchlistMatches', () => {
     expect(total).toBeLessThanOrEqual(10);
   }, 30_000);
 });
+
+describe('reconcileWatchlistMatches cursor advance under a saturated scan', () => {
+  useCleanBindings();
+
+  /**
+   * The per-chunk LIMIT means each vendor chunk has its own high-water mark.
+   * Advancing the cursor to the GLOBAL maximum, as this used to, skipped every
+   * row a saturated chunk hadn't read yet — permanently, and silently, for
+   * anyone with more than 98 subscribed vendors. The cursor may only move to
+   * the lowest saturated chunk's mark.
+   *
+   * vendorChunkSize/maxCvesPerRun are clamped test overrides, so this
+   * reproduces a two-chunk saturated scan with four CVEs instead of 4,000.
+   */
+  it('advances only to the lowest saturated chunk high-water mark', async () => {
+    const now = Date.now();
+    const wl = await createWatchlist('saturated');
+    await subscribe(wl, 'alpha', null);
+    await subscribe(wl, 'beta', null);
+
+    // Chunk 1 = [alpha]: rows at T+1000 and T+2000 (it will be cut at 1).
+    await seedCve('CVE-2026-6001', now - 4000);
+    await seedCpe('CVE-2026-6001', 'alpha', 'one');
+    await seedCve('CVE-2026-6002', now - 3000);
+    await seedCpe('CVE-2026-6002', 'alpha', 'two');
+    // Chunk 2 = [beta]: rows strictly newer than chunk 1's.
+    await seedCve('CVE-2026-6003', now - 2000);
+    await seedCpe('CVE-2026-6003', 'beta', 'three');
+    await seedCve('CVE-2026-6004', now - 1000);
+    await seedCpe('CVE-2026-6004', 'beta', 'four');
+
+    const result = await reconcileWatchlistMatches(testEnv, now, {
+      vendorChunkSize: 1,
+      maxCvesPerRun: 1,
+    });
+
+    // Each chunk read exactly one (its oldest) row and reported saturated.
+    // The floor is alpha's mark; beta's newer mark must NOT be used, or
+    // CVE-2026-6002 is never seen again.
+    expect(result.cursorAdvancedToMs).toBe(now - 4000);
+    const cursor = await testEnv.DB.prepare(
+      `SELECT last_cursor_ms FROM watchlist_sync_state WHERE key = 'watchlist_match'`,
+    ).first<{ last_cursor_ms: number }>();
+    expect(cursor?.last_cursor_ms).toBe(now - 4000);
+
+    // The skipped rows are still reachable: re-running with the real bounds
+    // picks up everything (the 1h safety overlap also replays the oldest).
+    await reconcileWatchlistMatches(testEnv, now);
+    expect((await getMatches(wl)).map((m) => m.cve_id)).toEqual([
+      'CVE-2026-6001',
+      'CVE-2026-6002',
+      'CVE-2026-6003',
+      'CVE-2026-6004',
+    ]);
+  });
+
+  it('advances to the newest processed CVE when no chunk saturates', async () => {
+    const now = Date.now();
+    const wl = await createWatchlist('unsaturated');
+    await subscribe(wl, 'acme', null);
+
+    await seedCve('CVE-2026-6101', now - 3000);
+    await seedCpe('CVE-2026-6101', 'acme', 'one');
+    await seedCve('CVE-2026-6102', now - 2000);
+    await seedCpe('CVE-2026-6102', 'acme', 'two');
+
+    const result = await reconcileWatchlistMatches(testEnv, now);
+    expect(result.cursorAdvancedToMs).toBe(now - 2000);
+    expect((await getMatches(wl)).length).toBe(2);
+  });
+});

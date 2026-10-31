@@ -117,6 +117,106 @@ describe('dispatchWatchlistNotifications', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it('posts to EVERY enabled webhook on a watchlist, not just the first', async () => {
+    // notified_at is keyed (watchlist_id, cve_id) — stamping it after the
+    // first webhook made the second one's pending query come back empty, so a
+    // second Slack channel added alongside a generic endpoint was silently
+    // dead. The pending set is snapshotted once per watchlist instead.
+    await seedWatchlistWithWebhook(10, 'https://hooks.example.com/first');
+    await testEnv.DB.prepare(
+      `INSERT INTO watchlist_webhook (watchlist_id, kind, url, enabled, created_at)
+       VALUES (10, 'slack', 'https://hooks.example.com/second', 1, ?)`,
+    )
+      .bind(now)
+      .run();
+    await seedMatch(10, 'CVE-2026-5001');
+
+    const fetchSpy = vi.fn(async () => new Response('ok', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await dispatchWatchlistNotifications(testEnv);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls.map((c) => c[0]).sort()).toEqual([
+      'https://hooks.example.com/first',
+      'https://hooks.example.com/second',
+    ]);
+    expect(result.webhooksDispatched).toBe(2);
+    // The digest is counted once, not once per webhook.
+    expect(result.matchesNotified).toBe(1);
+    expect(await notifiedAt(10, 'CVE-2026-5001')).not.toBeNull();
+  });
+
+  it('stamps when one of two webhooks succeeds, and records the failure', async () => {
+    await seedWatchlistWithWebhook(11, 'https://good.example.com/hook');
+    await testEnv.DB.prepare(
+      `INSERT INTO watchlist_webhook (watchlist_id, kind, url, enabled, created_at)
+       VALUES (11, 'generic', 'https://bad.example.com/hook', 1, ?)`,
+    )
+      .bind(now)
+      .run();
+    await seedMatch(11, 'CVE-2026-5101');
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url.includes('bad') ? new Response('no', { status: 500 }) : new Response('ok'),
+      ),
+    );
+
+    const result = await dispatchWatchlistNotifications(testEnv);
+
+    // A permanently-broken endpoint must not re-send the digest to the
+    // healthy one forever; the failure surfaces per webhook instead.
+    expect(result.webhooksDispatched).toBe(1);
+    expect(await notifiedAt(11, 'CVE-2026-5101')).not.toBeNull();
+
+    const statuses = await testEnv.DB.prepare(
+      `SELECT url, last_dispatch_status FROM watchlist_webhook WHERE watchlist_id = 11
+       ORDER BY url ASC`,
+    ).all<{ url: string; last_dispatch_status: string | null }>();
+    expect(statuses.results.map((r) => r.last_dispatch_status)).toEqual(['FAILED', 'OK']);
+  });
+
+  it('treats a redirect as a failure instead of following it off https', async () => {
+    // The URL is validated https: at creation time, but with default redirect
+    // handling a receiver could 302 the POST to http:// or an internal host.
+    await seedWatchlistWithWebhook(12, 'https://hooks.example.com/redirector');
+    await seedMatch(12, 'CVE-2026-5201');
+
+    const fetchSpy = vi.fn(
+      async () => new Response(null, { status: 302, headers: { Location: 'http://evil.test/in' } }),
+    );
+    vi.stubGlobal('fetch', fetchSpy);
+
+    const result = await dispatchWatchlistNotifications(testEnv);
+
+    expect(result.webhooksDispatched).toBe(0);
+    const [, redirectInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(redirectInit.redirect).toBe('manual');
+    // Unstamped, so a receiver that stops redirecting still gets the digest.
+    expect(await notifiedAt(12, 'CVE-2026-5201')).toBeNull();
+  });
+
+  it('signs the body when WEBHOOK_SIGNING_SECRET is set, and omits the header when not', async () => {
+    await seedWatchlistWithWebhook(13, 'https://hooks.example.com/signed');
+    await seedMatch(13, 'CVE-2026-5301');
+
+    const fetchSpy = vi.fn(async () => new Response('ok'));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await dispatchWatchlistNotifications({ ...testEnv, WEBHOOK_SIGNING_SECRET: 'shhh' });
+    const [, signedInit] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    const signedHeaders = signedInit.headers as Record<string, string>;
+    expect(signedHeaders['X-ThreatLens-Signature']).toMatch(/^sha256=[0-9a-f]{64}$/);
+
+    await seedMatch(13, 'CVE-2026-5302');
+    await dispatchWatchlistNotifications(testEnv);
+    const [, plainInit] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    const plainHeaders = plainInit.headers as Record<string, string>;
+    expect(plainHeaders['X-ThreatLens-Signature']).toBeUndefined();
+  });
+
   it('a disabled webhook is skipped', async () => {
     await testEnv.DB.prepare(
       `INSERT INTO watchlist (watchlist_id, name, created_at, updated_at) VALUES (5, 'w', ?, ?)`,
