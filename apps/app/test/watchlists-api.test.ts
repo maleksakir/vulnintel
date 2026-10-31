@@ -33,7 +33,11 @@ async function seedWatchlist(id: number, name: string): Promise<void> {
     .run();
 }
 
-async function seedSubscription(wlId: number, vendor: string, product: string | null): Promise<void> {
+async function seedSubscription(
+  wlId: number,
+  vendor: string,
+  product: string | null,
+): Promise<void> {
   await env.DB.prepare(
     `INSERT INTO watchlist_subscription (watchlist_id, vendor, product, created_at)
      VALUES (?, ?, ?, ?)`,
