@@ -1,13 +1,12 @@
 <script lang="ts">
+  import PageHeader from '$lib/ui/PageHeader.svelte';
+  import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import type { PageData } from './$types';
-  import type { Severity } from '@threat-lens/contracts';
 
-  interface Props { data: PageData }
+  interface Props {
+    data: PageData;
+  }
   let { data }: Props = $props();
-
-  const SEV_COLOR: Record<Severity, string> = {
-    CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#22c55e', NONE: '#6b7280',
-  };
 
   function isoToDate(iso: string | null) {
     return iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
@@ -24,7 +23,12 @@
 </svelte:head>
 
 <div class="page-threat">
-  <h1 class="page-title">Threat Intelligence</h1>
+  <PageHeader
+    eyebrow="THREAT INTELLIGENCE"
+    title="Active Exploitation Feed"
+    subtitle="CISA KEV and EPSS — the two signals that say an exploit exists, not just a flaw."
+    live
+  />
 
   <nav class="tab-nav" aria-label="Threat intel sections">
     <a
@@ -44,10 +48,13 @@
   {#if data.tab === 'kev'}
     <section aria-label="CISA Known Exploited Vulnerabilities">
       {#if data.kev.rows.length === 0}
-        <p class="empty-state">No KEV entries found.</p>
+        <div class="empty-state">
+          <span class="empty-state__title">No KEV entries</span>
+          <span>Nothing in the CISA Known Exploited catalog for this view yet.</span>
+        </div>
       {:else}
-        <div class="table-wrap">
-          <table class="data-table">
+        <div class="data-grid__wrap boot-in">
+          <table class="data-grid">
             <thead>
               <tr>
                 <th>CVE ID</th>
@@ -61,15 +68,13 @@
             <tbody>
               {#each data.kev.rows as row}
                 <tr>
-                  <td>
-                    <a class="cve-link" href="/cve/{row.cveId}">{row.cveId}</a>
-                  </td>
-                  <td style="color:{SEV_COLOR[row.severity]}">{row.severity}</td>
+                  <td><a class="cve-link" href="/cve/{row.cveId}">{row.cveId}</a></td>
+                  <td><SeverityBadge severity={row.severity} variant="text" /></td>
                   <td>
                     <a href="/affected-products?vendor={encodeURIComponent(row.vendor)}">{row.vendor}</a>
                   </td>
-                  <td>{isoToDate(row.kevDateAdded)}</td>
-                  <td>{isoToDate(row.kevDueDate)}</td>
+                  <td class="mono">{isoToDate(row.kevDateAdded)}</td>
+                  <td class="mono">{isoToDate(row.kevDueDate)}</td>
                   <td class="action-cell">{row.kevRequiredAction}</td>
                 </tr>
               {/each}
@@ -81,7 +86,7 @@
           {@const href = nextPageHref('kev', data.kev.nextCursor)}
           {#if href}
             <div class="pagination">
-              <a class="pagination-btn" {href}>Next page →</a>
+              <a class="btn-cmd" {href}>Next page →</a>
             </div>
           {/if}
         {/if}
@@ -95,10 +100,13 @@
         Higher score = higher risk.
       </p>
       {#if data.epss.rows.length === 0}
-        <p class="empty-state">No EPSS data found.</p>
+        <div class="empty-state">
+          <span class="empty-state__title">No EPSS data</span>
+          <span>No exploit-probability scores are available for this view yet.</span>
+        </div>
       {:else}
-        <div class="table-wrap">
-          <table class="data-table">
+        <div class="data-grid__wrap boot-in">
+          <table class="data-grid">
             <thead>
               <tr>
                 <th>CVE ID</th>
@@ -110,23 +118,21 @@
               </tr>
             </thead>
             <tbody>
-              {#each data.epss.rows as row, i}
+              {#each data.epss.rows as row}
                 <tr>
-                  <td>
-                    <a class="cve-link" href="/cve/{row.cveId}">{row.cveId}</a>
-                  </td>
-                  <td style="color:{SEV_COLOR[row.severity]}">{row.severity}</td>
+                  <td><a class="cve-link" href="/cve/{row.cveId}">{row.cveId}</a></td>
+                  <td><SeverityBadge severity={row.severity} variant="text" /></td>
                   <td>
                     <a href="/affected-products?vendor={encodeURIComponent(row.vendor)}">{row.vendor}</a>
                   </td>
                   <td>
                     <div class="score-bar-wrap">
                       <div class="score-bar" style="width:{(row.epssScore * 100).toFixed(1)}%"></div>
-                      <span class="score-text">{(row.epssScore * 100).toFixed(2)}%</span>
+                      <span class="score-text mono">{(row.epssScore * 100).toFixed(2)}%</span>
                     </div>
                   </td>
-                  <td>{(row.epssPercentile * 100).toFixed(1)}th</td>
-                  <td>{row.cvssBase !== null ? row.cvssBase.toFixed(1) : '—'}</td>
+                  <td class="mono">{(row.epssPercentile * 100).toFixed(1)}th</td>
+                  <td class="mono">{row.cvssBase !== null ? row.cvssBase.toFixed(1) : '—'}</td>
                 </tr>
               {/each}
             </tbody>
@@ -137,7 +143,7 @@
           {@const href = nextPageHref('epss', data.epss.nextCursor)}
           {#if href}
             <div class="pagination">
-              <a class="pagination-btn" {href}>Next page →</a>
+              <a class="btn-cmd" {href}>Next page →</a>
             </div>
           {/if}
         {/if}
@@ -147,30 +153,81 @@
 </div>
 
 <style>
-  .page-title { font-size: var(--text-2xl); font-weight: var(--weight-semibold); margin: 0 0 var(--space-6); color: var(--color-text-primary); }
+  /* Command-console tab strip. */
+  .tab-nav {
+    display: flex;
+    gap: var(--space-1);
+    margin-block-end: var(--space-6);
+    border-bottom: 1px solid var(--color-border-default);
+  }
+  .tab-link {
+    position: relative;
+    padding: var(--space-2_5) var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    font-weight: var(--weight-medium);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: var(--transition-colors);
+  }
+  .tab-link:hover {
+    color: var(--color-text-primary);
+    text-decoration: none;
+  }
+  .tab-link--active {
+    color: var(--color-brand-text);
+    border-bottom-color: var(--color-brand-default);
+  }
+  .tab-link--active::after {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 2px;
+    background: var(--color-brand-default);
+    box-shadow: 0 0 8px hsl(188 92% 52% / 0.7);
+  }
 
-  .tab-nav { display: flex; gap: var(--space-1); margin-block-end: var(--space-6); border-bottom: 1px solid var(--color-border-subtle); }
-  .tab-link { padding: var(--space-2) var(--space-4); font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--color-text-secondary); text-decoration: none; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: var(--transition-colors); }
-  .tab-link:hover { color: var(--color-text-primary); }
-  .tab-link--active { color: var(--color-brand-400); border-bottom-color: var(--color-brand-400); }
+  .epss-note {
+    font-size: var(--text-sm);
+    color: var(--color-text-tertiary);
+    margin-block-end: var(--space-4);
+    padding-inline-start: var(--space-3);
+    border-inline-start: 2px solid var(--color-epss);
+  }
 
-  .epss-note { font-size: var(--text-sm); color: var(--color-text-tertiary); margin-block-end: var(--space-4); }
-  .empty-state { color: var(--color-text-secondary); }
+  .action-cell {
+    max-width: 28rem;
+    font-size: var(--text-xs);
+    line-height: var(--leading-snug);
+    color: var(--color-text-tertiary);
+  }
 
-  .table-wrap { overflow-x: auto; }
-  .data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
-  .data-table th { text-align: left; padding: var(--space-2) var(--space-3); font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: var(--tracking-wide); border-bottom: 1px solid var(--color-border-subtle); white-space: nowrap; }
-  .data-table td { padding: var(--space-2) var(--space-3); color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border-subtle); vertical-align: top; }
-  .data-table a { color: var(--color-brand-400); text-decoration: none; }
-  .data-table a:hover { text-decoration: underline; }
-  .cve-link { font-family: var(--font-mono); font-size: var(--text-xs); }
-  .action-cell { max-width: 28rem; font-size: var(--text-xs); line-height: 1.5; }
+  .score-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  .score-bar {
+    height: 0.4rem;
+    background: linear-gradient(90deg, var(--color-epss), var(--color-brand-default));
+    border-radius: var(--radius-full);
+    min-width: 2px;
+    max-width: 8rem;
+    box-shadow: 0 0 8px -2px var(--color-epss);
+  }
+  .score-text {
+    font-size: var(--text-xs);
+    white-space: nowrap;
+    color: var(--color-text-secondary);
+  }
 
-  .score-bar-wrap { display: flex; align-items: center; gap: var(--space-2); }
-  .score-bar { height: 0.5rem; background: var(--color-brand-500); border-radius: var(--radius-full); min-width: 2px; max-width: 8rem; }
-  .score-text { font-family: var(--font-mono); font-size: var(--text-xs); white-space: nowrap; }
-
-  .pagination { margin-block-start: var(--space-6); }
-  .pagination-btn { padding: var(--space-2) var(--space-4); background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text-primary); text-decoration: none; }
-  .pagination-btn:hover { background: var(--color-surface-elevated); }
+  .pagination {
+    margin-block-start: var(--space-6);
+  }
 </style>

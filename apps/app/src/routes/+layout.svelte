@@ -138,8 +138,13 @@
     position: sticky;
     top: 0;
     height: var(--layout-nav-height);
-    background: var(--color-surface-base);
-    border-bottom: 1px solid var(--color-border-subtle);
+    /* Glassy translucent bar over a hairline cyan underglow — the
+       operator-console chrome. */
+    background: var(--color-surface-glass);
+    backdrop-filter: blur(12px) saturate(140%);
+    -webkit-backdrop-filter: blur(12px) saturate(140%);
+    border-bottom: 1px solid var(--color-border-default);
+    box-shadow: 0 1px 0 hsl(188 92% 52% / 0.08);
     z-index: var(--z-header);
   }
 
@@ -157,6 +162,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-2);
+    font-family: var(--font-mono);
     font-size: var(--text-base);
     font-weight: var(--weight-semibold);
     color: var(--color-text-primary);
@@ -165,9 +171,15 @@
     flex-shrink: 0;
   }
 
+  .site-nav__logo:hover {
+    text-decoration: none;
+    color: var(--color-brand-text);
+  }
+
   .site-nav__logo-icon {
-    color: var(--color-brand-500);
+    color: var(--color-brand-default);
     flex-shrink: 0;
+    filter: drop-shadow(0 0 6px hsl(188 92% 52% / 0.5));
   }
 
   .site-nav__links {
@@ -181,6 +193,7 @@
   }
 
   .site-nav__links a {
+    position: relative;
     display: block;
     padding: var(--space-2) var(--space-3);
     font-size: var(--text-sm);
@@ -191,10 +204,28 @@
     transition: var(--transition-colors);
   }
 
-  .site-nav__links a:hover,
-  .site-nav__links a[aria-current='page'] {
+  .site-nav__links a:hover {
     color: var(--color-text-primary);
     background: var(--color-surface-elevated);
+    text-decoration: none;
+  }
+
+  /* Active route: cyan text + a glowing underline bar, like a selected
+     channel on a console. */
+  .site-nav__links a[aria-current='page'] {
+    color: var(--color-brand-text);
+    background: var(--color-brand-subtle);
+  }
+  .site-nav__links a[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: calc(-1 * var(--space-2) - 1px);
+    height: 2px;
+    background: var(--color-brand-default);
+    box-shadow: 0 0 8px hsl(188 92% 52% / 0.7);
+    border-radius: var(--radius-full);
   }
 
   .site-nav__theme-toggle {

@@ -1,16 +1,16 @@
 <script lang="ts">
-  import type { PageData } from './$types';
   import type { Severity } from '@threat-lens/contracts';
+  import PageHeader from '$lib/ui/PageHeader.svelte';
+  import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import SearchResultsTable from './SearchResultsTable.svelte';
+  import type { PageData } from './$types';
 
-  interface Props { data: PageData }
+  interface Props {
+    data: PageData;
+  }
   let { data }: Props = $props();
 
   const SEVERITIES: Severity[] = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'NONE'];
-
-  const SEV_COLOR: Record<Severity, string> = {
-    CRITICAL: '#ef4444', HIGH: '#f97316', MEDIUM: '#eab308', LOW: '#22c55e', NONE: '#6b7280',
-  };
 </script>
 
 <svelte:head>
@@ -18,7 +18,11 @@
 </svelte:head>
 
 <div class="page-search">
-  <h1 class="page-title">CVE Search</h1>
+  <PageHeader
+    eyebrow="QUERY CONSOLE"
+    title="CVE Search"
+    subtitle="Keyword, CVE ID, vendor or technology — fused full-text and semantic ranking."
+  />
 
   <form class="search-form" method="GET">
     <div class="search-input-row">
@@ -32,7 +36,7 @@
         aria-label="Search CVEs"
         autofocus
       />
-      <button class="search-btn" type="submit">Search</button>
+      <button class="btn-cmd btn-cmd--lg" type="submit">Search</button>
     </div>
 
     <details class="filter-row" open={!!(data.filters?.severity?.length || data.filters?.kev || data.filters?.minCvss !== undefined)}>
@@ -49,7 +53,7 @@
                   value={sev}
                   checked={data.filters?.severity?.includes(sev) ?? false}
                 />
-                <span style="color:{SEV_COLOR[sev]}">{sev}</span>
+                <SeverityBadge severity={sev} variant="text" />
               </label>
             {/each}
           </div>
@@ -93,7 +97,10 @@
         : 'Daily search quota exceeded. Try again tomorrow.'}
     </div>
   {:else if data.query && data.results.length === 0}
-    <p class="empty-state">No results found for <strong>"{data.query}"</strong>.</p>
+    <div class="empty-state">
+      <span class="empty-state__title">No matches</span>
+      <span>Nothing found for <strong>"{data.query}"</strong>. Try broader terms or fewer filters.</span>
+    </div>
   {:else if data.results.length > 0}
     <div class="results-header">
       <p class="results-count">
@@ -107,37 +114,99 @@
 </div>
 
 <style>
-  .page-title { font-size: var(--text-2xl); font-weight: var(--weight-semibold); margin: 0 0 var(--space-6); color: var(--color-text-primary); }
-
   .search-form { margin-block-end: var(--space-6); }
   .search-input-row { display: flex; gap: var(--space-2); }
   .search-input {
-    flex: 1; padding: var(--space-3) var(--space-4);
-    background: var(--color-surface-raised); border: 1px solid var(--color-border-default);
-    border-radius: var(--radius-md); font-size: var(--text-base); color: var(--color-text-primary);
+    flex: 1;
+    padding: var(--space-3) var(--space-4);
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+    font-size: var(--text-base);
+    color: var(--color-text-primary);
     outline: none;
+    transition: var(--transition-colors), box-shadow var(--duration-fast) var(--ease-out);
   }
-  .search-input:focus { border-color: var(--color-brand-500); box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-brand-500) 20%, transparent); }
-  .search-btn {
-    padding: var(--space-3) var(--space-6); background: var(--color-brand-500); color: #fff;
-    border-radius: var(--radius-md); font-size: var(--text-sm); font-weight: var(--weight-medium);
-    border: none; cursor: pointer;
+  .search-input::placeholder { color: var(--color-text-tertiary); }
+  .search-input:focus {
+    border-color: var(--color-brand-default);
+    box-shadow: var(--glow-accent);
   }
-  .search-btn:hover { background: var(--color-brand-600, #2563eb); }
+  /* Larger variant of the shared console button, for the primary search action. */
+  .btn-cmd--lg {
+    padding: var(--space-3) var(--space-6);
+    font-size: var(--text-base);
+  }
 
   .filter-row { margin-block-start: var(--space-3); }
-  .filter-summary { font-size: var(--text-sm); color: var(--color-text-secondary); cursor: pointer; }
-  .filter-grid { display: flex; gap: var(--space-6); padding: var(--space-4) 0; flex-wrap: wrap; }
+  .filter-summary {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: var(--tracking-wide);
+    text-transform: uppercase;
+    color: var(--color-text-secondary);
+    cursor: pointer;
+  }
+  .filter-summary:hover { color: var(--color-brand-text); }
+  .filter-grid {
+    display: flex;
+    gap: var(--space-8);
+    padding: var(--space-4);
+    margin-block-start: var(--space-3);
+    flex-wrap: wrap;
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-sunken);
+  }
   .filter-group { border: none; padding: 0; margin: 0; }
-  .filter-group-label { display: block; font-size: var(--text-xs); color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: var(--tracking-wide); margin-block-end: var(--space-2); font-weight: var(--weight-medium); }
-  .checkbox-list { display: flex; flex-direction: column; gap: var(--space-1); }
-  .checkbox-label { display: flex; align-items: center; gap: var(--space-2); font-size: var(--text-sm); cursor: pointer; color: var(--color-text-secondary); }
-  .filter-input { padding: var(--space-1) var(--space-2); background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); font-size: var(--text-sm); color: var(--color-text-primary); width: 5rem; }
+  .filter-group-label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    color: var(--color-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wide);
+    margin-block-end: var(--space-2);
+  }
+  .checkbox-list { display: flex; flex-direction: column; gap: var(--space-1_5); }
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    font-size: var(--text-sm);
+    cursor: pointer;
+    color: var(--color-text-secondary);
+  }
+  .checkbox-label input { accent-color: var(--color-brand-default); }
+  .filter-input {
+    padding: var(--space-1_5) var(--space-2);
+    background: var(--color-surface-raised);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-sm);
+    font-size: var(--text-sm);
+    color: var(--color-text-primary);
+    width: 6rem;
+    outline: none;
+  }
+  .filter-input:focus { border-color: var(--color-brand-border); }
 
-  .alert { padding: var(--space-4); border-radius: var(--radius-md); margin-block-end: var(--space-4); }
-  .alert--warn { background: #7c2d1220; border: 1px solid #7c2d12; color: #fed7aa; }
-  .empty-state { color: var(--color-text-secondary); font-size: var(--text-base); }
+  .alert {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+    margin-block-end: var(--space-4);
+    font-size: var(--text-sm);
+  }
+  .alert--warn {
+    background: var(--color-medium-subtle);
+    border: 1px solid var(--color-medium-border);
+    color: var(--color-medium-text);
+  }
 
-  .results-header { margin-block-end: var(--space-2); }
-  .results-count { font-size: var(--text-sm); color: var(--color-text-secondary); }
+  .results-header { margin-block-end: var(--space-3); }
+  .results-count {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: var(--tracking-wide);
+    color: var(--color-text-tertiary);
+  }
 </style>

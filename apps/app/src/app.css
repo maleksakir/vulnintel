@@ -194,97 +194,153 @@ h6 {
   --color-text-muted:       hsl(222,  8%, 72%);
   --color-text-on-brand:    hsl(  0,  0%, 100%);
   --z-header:               20;
+
+  /* ── Operator-console effect tokens — light-mode fallbacks ─────────
+     The cyber glow/grid belong to the dark "Operator Console" theme;
+     in light mode they degrade to near-nothing so shared component
+     styles that reference them stay valid without lighting up a bright
+     UI with neon. The dark block above overrides all of these. */
+  --glow-accent:        none;
+  --glow-accent-strong: none;
+  --glow-critical:      none;
+  --glow-text-accent:   none;
+  --grid-line:          hsl(215 40% 50% / 0.04);
+  --grid-size:          32px;
+  --color-surface-glass: hsl(220 20% 98% / 0.8);
 }
 
 /* ── Dark theme overrides ───────────────────────────────────────────────── */
+/*
+ *  "OPERATOR CONSOLE" — the cybersecurity/SOC aesthetic (redesign 2026-11-02).
+ *
+ *  Design language, researched against modern SOC / threat-intel dashboards
+ *  and developer-tool dark themes (Supabase, Sentry, Tokyo Night):
+ *   • Surfaces are deep desaturated navy-black (hue 215, very low lightness),
+ *     NOT pure black — less eye strain on long sessions, reads as "premium
+ *     terminal" rather than "default dark mode". A faint cyan cast in the
+ *     neutrals ties the whole surface stack to the accent.
+ *   • CYAN is the primary signal colour — the "hyperlink cyan portal" of the
+ *     late-night-terminal aesthetic. It replaces the old generic SaaS blue
+ *     for every interactive/brand token, so links, focus rings, active nav,
+ *     primary buttons and chart primaries all shift together.
+ *   • Severity hues (red/orange/amber/green) are PRESERVED — they are
+ *     semantically load-bearing (a CRITICAL must look critical), only tuned
+ *     slightly hotter so they punch against the darker ground.
+ *   • New --glow-* and --grid-* tokens drive the signature cyber touches
+ *     (accent bloom on live elements, the faint HUD grid) — see §6/§13.
+ *
+ *  Changing the hue anchors below re-skins the entire app; every component
+ *  reads these tokens, none hard-code a hex.
+ */
 [data-theme="dark"] {
-  /* ── Surfaces (dark) */
-  --color-surface-base:    hsl(222, 22%,  9%);
-  --color-surface-raised:  hsl(222, 20%, 12%);
-  --color-surface-overlay: hsl(222, 18%, 16%);
-  --color-surface-sunken:  hsl(222, 24%,  7%);
-  --color-surface-invert:  hsl(220, 18%, 96%);
+  /* Accent hue anchor — cyan. One knob re-tints every brand token. */
+  --hue-accent: 188;
 
-  /* ── Text (dark) */
-  --color-text-primary:   hsl(218, 22%, 92%);
-  --color-text-secondary: hsl(218, 14%, 68%);
-  --color-text-tertiary:  hsl(218, 10%, 50%);
-  --color-text-disabled:  hsl(218,  8%, 36%);
-  --color-text-invert:    hsl(222, 22%,  9%);
+  /* ── Surfaces (dark) — deep navy-black, faint cyan cast */
+  --color-surface-base:    hsl(210, 28%,  6%);   /* page ground — near-black */
+  --color-surface-raised:  hsl(210, 24%,  9%);   /* cards, panels */
+  --color-surface-overlay: hsl(208, 22%, 13%);   /* popovers, hover fills */
+  --color-surface-sunken:  hsl(212, 32%,  4%);   /* wells, code blocks, inset */
+  --color-surface-invert:  hsl(190, 30%, 94%);
 
-  /* ── Brand / Primary (dark) */
-  --color-brand-default: hsl(215, 80%, 60%);
-  --color-brand-hover:   hsl(215, 80%, 70%);
-  --color-brand-active:  hsl(215, 80%, 76%);
-  --color-brand-subtle:  hsl(215, 60%, 14%);
-  --color-brand-border:  hsl(215, 50%, 28%);
-  --color-brand-text:    hsl(215, 80%, 72%);
+  /* ── Text (dark) — cool off-white, never pure #fff */
+  --color-text-primary:   hsl(195, 24%, 92%);
+  --color-text-secondary: hsl(200, 14%, 66%);
+  --color-text-tertiary:  hsl(205, 12%, 48%);
+  --color-text-disabled:  hsl(208,  8%, 34%);
+  --color-text-invert:    hsl(210, 28%,  6%);
 
-  /* ── Severity — CRITICAL (dark) */
-  --color-critical:        hsl(  5, 80%, 62%);
-  --color-critical-hover:  hsl(  5, 80%, 70%);
-  --color-critical-subtle: hsl(  5, 60%, 12%);
-  --color-critical-border: hsl(  5, 50%, 26%);
-  --color-critical-text:   hsl(  5, 80%, 72%);
+  /* ── Brand / Primary (dark) — CYAN */
+  --color-brand-default: hsl(188, 92%, 52%);
+  --color-brand-hover:   hsl(186, 96%, 62%);
+  --color-brand-active:  hsl(184, 98%, 70%);
+  --color-brand-subtle:  hsl(192, 70%, 11%);
+  --color-brand-border:  hsl(190, 60%, 26%);
+  --color-brand-text:    hsl(186, 90%, 66%);
+
+  /* ── Severity — CRITICAL (dark) — hot red, punches against the dark ground */
+  --color-critical:        hsl(353, 92%, 60%);
+  --color-critical-hover:  hsl(353, 95%, 68%);
+  --color-critical-subtle: hsl(353, 70%, 11%);
+  --color-critical-border: hsl(353, 60%, 28%);
+  --color-critical-text:   hsl(353, 92%, 72%);
 
   /* ── Severity — HIGH (dark) */
-  --color-high:        hsl( 22, 85%, 62%);
-  --color-high-hover:  hsl( 22, 85%, 70%);
-  --color-high-subtle: hsl( 22, 65%, 12%);
-  --color-high-border: hsl( 22, 55%, 26%);
-  --color-high-text:   hsl( 22, 80%, 72%);
+  --color-high:        hsl( 20, 92%, 60%);
+  --color-high-hover:  hsl( 20, 95%, 68%);
+  --color-high-subtle: hsl( 20, 70%, 11%);
+  --color-high-border: hsl( 20, 60%, 28%);
+  --color-high-text:   hsl( 20, 90%, 70%);
 
-  /* ── Severity — MEDIUM (dark) */
-  --color-medium:        hsl( 38, 88%, 58%);
-  --color-medium-hover:  hsl( 38, 88%, 66%);
-  --color-medium-subtle: hsl( 38, 70%, 12%);
-  --color-medium-border: hsl( 38, 60%, 26%);
-  --color-medium-text:   hsl( 38, 80%, 68%);
+  /* ── Severity — MEDIUM (dark) — amber */
+  --color-medium:        hsl( 42, 96%, 56%);
+  --color-medium-hover:  hsl( 42, 98%, 64%);
+  --color-medium-subtle: hsl( 42, 72%, 11%);
+  --color-medium-border: hsl( 42, 62%, 26%);
+  --color-medium-text:   hsl( 44, 92%, 66%);
 
-  /* ── Severity — LOW (dark) */
-  --color-low:        hsl(145, 55%, 50%);
-  --color-low-hover:  hsl(145, 55%, 58%);
-  --color-low-subtle: hsl(145, 40%, 12%);
-  --color-low-border: hsl(145, 35%, 24%);
-  --color-low-text:   hsl(145, 55%, 60%);
+  /* ── Severity — LOW (dark) — signal green */
+  --color-low:        hsl(152, 68%, 48%);
+  --color-low-hover:  hsl(152, 72%, 56%);
+  --color-low-subtle: hsl(152, 50%, 10%);
+  --color-low-border: hsl(152, 42%, 24%);
+  --color-low-text:   hsl(152, 68%, 58%);
 
   /* ── Severity — NONE (dark) */
-  --color-none:        hsl(220, 10%, 50%);
-  --color-none-subtle: hsl(220, 10%, 13%);
-  --color-none-border: hsl(220, 10%, 24%);
-  --color-none-text:   hsl(220, 10%, 60%);
+  --color-none:        hsl(205, 10%, 48%);
+  --color-none-subtle: hsl(208, 16%, 12%);
+  --color-none-border: hsl(208, 12%, 24%);
+  --color-none-text:   hsl(205, 10%, 60%);
 
   /* ── Status indicators (dark) */
-  --color-status-green:        hsl(145, 55%, 50%);
-  --color-status-amber:        hsl( 38, 88%, 58%);
-  --color-status-red:          hsl(  5, 80%, 62%);
-  --color-status-green-subtle: hsl(145, 40%, 12%);
-  --color-status-amber-subtle: hsl( 38, 70%, 12%);
-  --color-status-red-subtle:   hsl(  5, 60%, 12%);
+  --color-status-green:        hsl(152, 68%, 48%);
+  --color-status-amber:        hsl( 42, 96%, 56%);
+  --color-status-red:          hsl(353, 92%, 60%);
+  --color-status-green-subtle: hsl(152, 50%, 10%);
+  --color-status-amber-subtle: hsl( 42, 72%, 11%);
+  --color-status-red-subtle:   hsl(353, 70%, 11%);
 
   /* ── Threat-intelligence highlights (dark) */
-  --color-kev:        hsl(  5, 80%, 62%);
-  --color-kev-subtle: hsl(  5, 60%, 12%);
-  --color-kev-text:   hsl(  5, 80%, 72%);
-  --color-epss:        hsl(280, 60%, 65%);
-  --color-epss-subtle: hsl(280, 50%, 14%);
-  --color-epss-text:   hsl(280, 60%, 74%);
+  /* KEV — hot red, active-exploitation danger */
+  --color-kev:        hsl(353, 92%, 60%);
+  --color-kev-subtle: hsl(353, 70%, 11%);
+  --color-kev-text:   hsl(353, 92%, 72%);
+  /* EPSS — violet, deliberately far from cyan AND red on the wheel */
+  --color-epss:        hsl(270, 85%, 70%);
+  --color-epss-subtle: hsl(270, 55%, 15%);
+  --color-epss-text:   hsl(270, 85%, 78%);
 
-  /* ── Borders (dark) */
-  --color-border-default: hsl(220, 14%, 22%);
-  --color-border-strong:  hsl(220, 14%, 32%);
-  --color-border-focus:   hsl(215, 80%, 60%);
+  /* ── Borders (dark) — faint cyan cast, not neutral grey */
+  --color-border-default: hsl(205, 20%, 18%);
+  --color-border-strong:  hsl(200, 20%, 30%);
+  --color-border-focus:   hsl(188, 92%, 52%);
 
   /* ── Code / Monospace background (dark) */
-  --color-code-bg: hsl(222, 20%, 13%);
+  --color-code-bg: hsl(210, 30%, 10%);
 
-  /* ── Compatibility aliases (dark overrides) ─────────────────────── */
-  --color-brand-400:        hsl(215, 80%, 65%);
-  --color-brand-500:        hsl(215, 80%, 60%);
-  --color-brand-600:        hsl(215, 80%, 54%);
-  --color-surface-elevated: hsl(222, 18%, 16%);
-  --color-border-subtle:    hsl(220, 14%, 17%);
-  --color-text-muted:       hsl(218,  8%, 36%);
+  /* ── Compatibility aliases (dark overrides) — now cyan ───────────── */
+  --color-brand-400:        hsl(186, 94%, 60%);
+  --color-brand-500:        hsl(188, 92%, 52%);
+  --color-brand-600:        hsl(190, 90%, 46%);
+  --color-surface-elevated: hsl(208, 22%, 13%);
+  --color-border-subtle:    hsl(208, 22%, 14%);
+  --color-text-muted:       hsl(205, 12%, 46%);
+
+  /* ── Operator-console effect tokens (§13) ────────────────────────── */
+  /* Accent glow — layered bloom for live/active elements. */
+  --glow-accent:
+    0 0 0 1px hsl(188 92% 52% / 0.35),
+    0 0 12px -2px hsl(188 92% 52% / 0.45);
+  --glow-accent-strong:
+    0 0 0 1px hsl(188 92% 52% / 0.55),
+    0 0 20px -2px hsl(188 92% 52% / 0.60);
+  --glow-critical: 0 0 16px -4px hsl(353 92% 60% / 0.55);
+  --glow-text-accent: 0 0 18px hsl(188 92% 52% / 0.45);
+  /* HUD grid overlay — faint cyan rule lines on hero/section backdrops. */
+  --grid-line: hsl(190 60% 50% / 0.045);
+  --grid-size: 32px;
+  /* A translucent raised surface for glassy panels over the grid. */
+  --color-surface-glass: hsl(210 26% 9% / 0.72);
 }
 
 /* ── 3. Typography Scale ──────────────────────────────────────────────────── */
@@ -629,4 +685,490 @@ table {
     text-align: center;
     line-height: var(--leading-snug);
   }
+}
+
+/* ── 13. Operator Console — cyber theme primitives ────────────────────────── */
+/*
+ *  Global, token-driven touches that give the dark theme its SOC/terminal
+ *  identity. All are opt-in via class or scoped to data-attributes, except
+ *  the typographic + selection refinements which are safe app-wide.
+ *
+ *  Performance note: every effect here is pure CSS (gradients, box-shadow,
+ *  transform) — no JS, no canvas, no extra network. Workers ship the same
+ *  bundle; this is all in the one stylesheet.
+ */
+
+/* Tabular, slightly-tightened numerals everywhere numbers carry meaning —
+   CVE counts, CVSS/EPSS scores, dates. Keeps columns of figures aligned and
+   gives the "telemetry readout" feel without forcing a mono font on prose. */
+.mono,
+code,
+kbd,
+samp,
+pre,
+time,
+[data-numeric] {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1, 'cv01' 1;
+}
+
+/* HUD grid backdrop — a faint cyan rule grid, as on a targeting/telemetry
+   display. Put it on a hero or section wrapper; it sits behind content.
+   Masked to fade at the edges so it reads as texture, not a spreadsheet. */
+.hud-grid {
+  position: relative;
+  isolation: isolate;
+}
+.hud-grid::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-below);
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: var(--grid-size) var(--grid-size);
+  -webkit-mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 40%, transparent 100%);
+  mask-image: radial-gradient(ellipse 80% 70% at 50% 0%, #000 40%, transparent 100%);
+  pointer-events: none;
+}
+
+/* Accent-glow helper for live / high-signal surfaces (live KPIs, active
+   status dots, the brand mark). Reduced-motion users get the glow without
+   the pulse. */
+.glow-accent {
+  box-shadow: var(--glow-accent);
+}
+.glow-text {
+  text-shadow: var(--glow-text-accent);
+}
+
+/* A small pulsing "live" dot — reused by the dashboard header, health page,
+   and the schema-pending notice. */
+.live-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-default);
+  box-shadow: var(--glow-accent);
+  animation: live-pulse 2s var(--ease-in-out) infinite;
+}
+@keyframes live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%      { opacity: 0.45; transform: scale(0.82); }
+}
+
+/* Animated scan-line sweep for hero banners — one slow pass of a faint
+   cyan highlight, like a CRT refresh. Decorative only. */
+.scanline {
+  position: relative;
+  overflow: hidden;
+}
+.scanline::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-below);
+  background: linear-gradient(
+    180deg,
+    transparent 0%,
+    hsl(188 92% 52% / 0.05) 48%,
+    hsl(188 92% 52% / 0.10) 50%,
+    hsl(188 92% 52% / 0.05) 52%,
+    transparent 100%
+  );
+  background-size: 100% 220%;
+  animation: scanline-sweep 6s linear infinite;
+  pointer-events: none;
+}
+@keyframes scanline-sweep {
+  0%   { background-position: 0 -110%; }
+  100% { background-position: 0 110%; }
+}
+
+/* Cyan selection + scrollbar in the dark theme — the accent should show up
+   even in the chrome. */
+[data-theme='dark'] ::selection {
+  background: hsl(188 92% 52% / 0.30);
+  color: var(--color-text-primary);
+}
+[data-theme='dark'] ::-webkit-scrollbar-thumb {
+  background: hsl(200 20% 26%);
+}
+[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-default);
+}
+
+/* Links in the dark theme get a subtle underline-glow on hover — the
+   "hyperlink cyan portal". */
+[data-theme='dark'] a:hover {
+  text-shadow: 0 0 10px hsl(188 92% 52% / 0.35);
+}
+
+/* Honour reduced-motion for every animation introduced here. */
+@media (prefers-reduced-motion: reduce) {
+  .live-dot,
+  .scanline::after {
+    animation: none;
+  }
+}
+
+/* ── 14. Command Center — cinematic HUD layer ─────────────────────────────── */
+/*
+ *  The "mission-control / spy-thriller console" layer. Where §13 gives the
+ *  quiet SOC-terminal identity, this gives the room its CINEMA: bracketed
+ *  panel frames, corner ticks, an ambient backdrop glow behind the whole app,
+ *  labelled section headers that read like telemetry channels, and restrained
+ *  motion that says "this console is live".
+ *
+ *  Still pure CSS — no canvas, no JS, no extra bytes over the wire beyond this
+ *  stylesheet. Every motion here is wrapped by the reduced-motion guard at the
+ *  bottom of the file. Decorative elements are aria-hidden at the markup level.
+ */
+
+/* ── Ambient command-room backdrop ─────────────────────────────────────────
+   A faint cyan vignette + corner bloom behind the entire dark-theme app, so
+   the page ground reads as a lit console rather than flat black. Fixed, so it
+   doesn't scroll. One element, GPU-cheap. */
+[data-theme='dark'] body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-below);
+  pointer-events: none;
+  background:
+    radial-gradient(70% 55% at 50% -8%, hsl(188 92% 50% / 0.07), transparent 60%),
+    radial-gradient(45% 45% at 100% 100%, hsl(270 85% 60% / 0.05), transparent 70%),
+    radial-gradient(45% 45% at 0% 100%, hsl(353 92% 55% / 0.04), transparent 70%);
+}
+
+/* ── Command panel ──────────────────────────────────────────────────────────
+   The core HUD frame used throughout the app. A raised surface with a crisp
+   hairline, bracketed corner ticks, and an optional labelled header strip.
+
+   Markup:
+     <section class="cmd-panel">
+       <header class="cmd-panel__bar">
+         <span class="cmd-panel__label">SEVERITY MATRIX</span>
+         <span class="cmd-panel__status">LIVE</span>
+       </header>
+       <div class="cmd-panel__body"> … </div>
+     </section>
+*/
+.cmd-panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, hsl(188 60% 50% / 0.025), transparent 120px),
+    var(--color-surface-raised);
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  isolation: isolate;
+}
+/* Corner brackets — the four L-ticks that make a box read as a HUD target
+   frame. Two pseudo-elements, each drawing two corners via border edges. */
+.cmd-panel::before,
+.cmd-panel::after {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  pointer-events: none;
+  border-color: var(--color-brand-border);
+  border-style: solid;
+  border-width: 0;
+}
+.cmd-panel::before {
+  top: -1px;
+  left: -1px;
+  border-top-width: 2px;
+  border-left-width: 2px;
+  border-top-left-radius: var(--radius-lg);
+}
+.cmd-panel::after {
+  bottom: -1px;
+  right: -1px;
+  border-bottom-width: 2px;
+  border-right-width: 2px;
+  border-bottom-right-radius: var(--radius-lg);
+}
+/* Elevated / "focused channel" variant — brighter brackets + accent glow. */
+.cmd-panel--live::before,
+.cmd-panel--live::after {
+  border-color: var(--color-brand-default);
+  filter: drop-shadow(0 0 4px hsl(188 92% 52% / 0.6));
+}
+
+/* Panel header strip — the telemetry-channel label bar. */
+.cmd-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2_5) var(--space-4);
+  border-bottom: 1px solid var(--color-border-default);
+  background: hsl(205 30% 50% / 0.04);
+}
+.cmd-panel__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+/* Dim channel index, e.g. "02 /" before the label. */
+.cmd-panel__index {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-brand-text);
+  opacity: 0.7;
+}
+.cmd-panel__status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1_5);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-brand-text);
+}
+.cmd-panel__status::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: var(--radius-full);
+  background: var(--color-brand-default);
+  box-shadow: var(--glow-accent);
+  animation: live-pulse 2s var(--ease-in-out) infinite;
+}
+.cmd-panel__body {
+  padding: var(--space-5);
+}
+
+/* ── Section heading, telemetry style ──────────────────────────────────────
+   A page/section title with a mono eyebrow and a trailing hairline rule that
+   extends to fill the row — the "> CHANNEL ───────" console look. */
+.cmd-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block-end: var(--space-5);
+}
+.cmd-heading__text {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-caps);
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+.cmd-heading__text::before {
+  content: '▸ ';
+  color: var(--color-brand-default);
+}
+.cmd-heading::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    var(--color-border-strong),
+    var(--color-border-default) 40%,
+    transparent
+  );
+}
+
+/* ── Reticle / data-readout chips ──────────────────────────────────────────
+   Small mono key=value readouts for headers and status rows. */
+.readout {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1_5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-text-tertiary);
+}
+.readout__key {
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+}
+.readout__val {
+  color: var(--color-brand-text);
+  font-weight: var(--weight-semibold);
+}
+
+/* ── Boot-in reveal ─────────────────────────────────────────────────────────
+   A short, staggered fade-up so a page "powers on" rather than snapping in.
+   Opt-in via .boot-in; stagger with inline --boot-delay. Guarded for
+   reduced-motion (falls back to fully-visible, no movement). */
+.boot-in {
+  animation: boot-in var(--duration-moderate) var(--ease-out) backwards;
+  animation-delay: var(--boot-delay, 0ms);
+}
+@keyframes boot-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cmd-panel__status::before { animation: none; }
+  .boot-in { animation: none; }
+}
+
+/* ── 15. Data grid + chips — shared, console-styled ───────────────────────── */
+/*
+ *  Canonical table + badge styling, GLOBAL (not scoped), because tables and
+ *  status chips recur on nearly every page and each route had re-declared
+ *  `.data-table` with small drifts (different border tokens, padding, link
+ *  colours). One definition here = identical alignment and colour everywhere.
+ *
+ *  Markup contract:
+ *    <div class="data-grid__wrap">
+ *      <table class="data-grid"> … </table>
+ *    </div>
+ *  Legacy `.data-table` is aliased to the same rules so existing pages inherit
+ *  the new look without markup churn, and are migrated class-by-class.
+ */
+.data-grid__wrap,
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-raised);
+}
+
+.data-grid,
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.data-grid thead th,
+.data-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  text-align: left;
+  padding: var(--space-3) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-wide);
+  white-space: nowrap;
+  background: var(--color-surface-sunken);
+  border-bottom: 1px solid var(--color-border-strong);
+}
+
+.data-grid tbody td,
+.data-table tbody td {
+  padding: var(--space-3) var(--space-4);
+  color: var(--color-text-secondary);
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: middle;
+}
+
+.data-grid tbody tr,
+.data-table tbody tr {
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.data-grid tbody tr:hover,
+.data-table tbody tr:hover {
+  background: var(--color-surface-overlay);
+}
+.data-grid tbody tr:last-child td,
+.data-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.data-grid a,
+.data-table a {
+  color: var(--color-brand-text);
+  text-decoration: none;
+}
+.data-grid a:hover,
+.data-table a:hover {
+  color: var(--color-brand-hover);
+}
+
+/* Monospace cell helper for CVE IDs, scores, dates in a grid. */
+.cve-link,
+.data-grid .mono,
+.data-table .mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── KEV chip — the recurring "active exploitation" marker ────────────────── */
+.kev-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-kev-text);
+  background: var(--color-kev-subtle);
+  border: 1px solid var(--color-kev);
+  padding: 0.1rem 0.4rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* ── Shared primary/ghost buttons (console styled) ────────────────────────── */
+.btn-cmd {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wide);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-brand-border);
+  background: var(--color-brand-subtle);
+  color: var(--color-brand-text);
+  transition: var(--transition-colors), box-shadow var(--duration-fast) var(--ease-out);
+}
+.btn-cmd:hover {
+  border-color: var(--color-brand-default);
+  box-shadow: var(--glow-accent);
+  text-decoration: none;
+}
+.btn-cmd:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  border-color: var(--color-border-default);
+}
+
+/* ── Shared empty-state + pagination ──────────────────────────────────────── */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-12) var(--space-6);
+  text-align: center;
+  color: var(--color-text-tertiary);
+  border: 1px dashed var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-sunken);
+  font-size: var(--text-sm);
+}
+.empty-state__title {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  letter-spacing: var(--tracking-wide);
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
 }

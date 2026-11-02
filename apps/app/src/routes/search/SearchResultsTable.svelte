@@ -240,15 +240,12 @@
   .link-btn { color: var(--color-brand-400); font-size: inherit; padding: 0; }
   .link-btn:hover { text-decoration: underline; }
 
-  /* Same table look as /threat-intel and /affected-products; fixed layout so
-     column widths don't shift as virtualized rows scroll in and out. */
-  .table-wrap { overflow-x: auto; }
-  .data-table { width: 100%; min-width: 54rem; table-layout: fixed; border-collapse: collapse; font-size: var(--text-sm); }
-  .data-table th { text-align: left; padding: var(--space-2) var(--space-3); font-size: var(--text-xs); font-weight: var(--weight-medium); color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: var(--tracking-wide); border-bottom: 1px solid var(--color-border-subtle); white-space: nowrap; }
-  .data-table td { padding: var(--space-2) var(--space-3); color: var(--color-text-secondary); border-bottom: 1px solid var(--color-border-subtle); vertical-align: top; overflow-wrap: anywhere; }
-  .data-table a { color: var(--color-brand-400); text-decoration: none; }
-  .data-table a:hover { text-decoration: underline; }
-  .data-table .spacer td { padding: 0; border: 0; }
+  /* Inherits the global .data-grid__wrap / .data-table look (app.css §15);
+     only the fixed-layout + min-width specifics for virtualization live here,
+     so column widths don't shift as rows scroll in and out. */
+  .data-table { min-width: 54rem; table-layout: fixed; }
+  .data-table .spacer td { padding: 0; border: 0; background: none; }
+  .data-table .spacer:hover { background: none; }
 
   .sort-btn { display: inline-flex; align-items: center; gap: var(--space-1); padding: 0; font: inherit; color: inherit; text-transform: inherit; letter-spacing: inherit; }
   .sort-btn:hover, .sort-btn--active { color: var(--color-text-primary); }
@@ -260,16 +257,16 @@
   .data-table .similar-link { font-size: var(--text-xs); color: var(--color-text-tertiary); }
   .data-table .similar-link:hover { color: var(--color-brand-400); }
 
-  .severity { font-size: var(--text-xs); font-weight: var(--weight-medium); letter-spacing: var(--tracking-wide); }
-  .severity--critical { color: var(--color-critical); }
-  .severity--high { color: var(--color-high); }
-  .severity--medium { color: var(--color-medium); }
-  .severity--low { color: var(--color-low); }
-  .severity--none { color: var(--color-none); }
+  .severity { font-family: var(--font-mono); font-size: var(--text-2xs); font-weight: var(--weight-semibold); letter-spacing: var(--tracking-wide); text-transform: uppercase; }
+  .severity--critical { color: var(--color-critical-text); }
+  .severity--high { color: var(--color-high-text); }
+  .severity--medium { color: var(--color-medium-text); }
+  .severity--low { color: var(--color-low-text); }
+  .severity--none { color: var(--color-none-text); }
 
-  .mono { font-family: var(--font-mono); font-size: var(--text-xs); }
+  .mono { font-family: var(--font-mono); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
   .muted { color: var(--color-text-tertiary); }
-  .kev-badge { font-size: var(--text-xs); background: var(--color-kev-subtle); color: var(--color-kev-text); padding: 0.125rem 0.375rem; border-radius: var(--radius-full); font-weight: var(--weight-medium); white-space: nowrap; }
+  .kev-badge { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; background: var(--color-kev-subtle); color: var(--color-kev-text); border: 1px solid var(--color-kev); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm); font-weight: var(--weight-semibold); white-space: nowrap; }
 
   .snippet { margin: 0; line-height: var(--leading-normal); display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
   .vendors { display: flex; gap: var(--space-1); flex-wrap: wrap; margin-block-start: var(--space-1_5); }
