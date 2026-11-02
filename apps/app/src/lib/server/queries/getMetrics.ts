@@ -32,9 +32,31 @@ import type {
  * defined window anyway. 1h and 24h are unchanged and exact.
  *
  * Every rollup read falls back to the old base-table query when the rollup is
- * empty, so a deploy that lands before the first post-migration aging sweep
- * shows correct numbers rather than zeros.
+ * empty OR when the table does not exist yet. The empty case covers a deploy
+ * that lands before the first post-migration aging sweep. The missing-table
+ * case matters because migration order is not something this code can assume:
+ * on 2026-11-02 applying migrations to production was blocked for most of a
+ * day by the account's D1 daily write cap while the Worker deploy itself was
+ * unaffected. Coupling the homepage's ability to render to whether a schema
+ * change has landed yet would turn a quota problem into an outage.
  */
+
+/**
+ * Runs a rollup query, returning null if the rollup is unavailable — either
+ * empty (not built yet) or absent (migration 0014 not applied). Callers treat
+ * null as "use the base tables".
+ */
+async function tryRollup<T>(run: () => Promise<T[]>): Promise<T[] | null> {
+  try {
+    const rows = await run();
+    return rows.length > 0 ? rows : null;
+  } catch {
+    // `no such table: cve_rollup_*` — migration 0014 hasn't been applied to
+    // this database yet. Any other D1 error is equally well served by the
+    // base-table path, which reads tables that have existed since 0001.
+    return null;
+  }
+}
 
 const WINDOW_DAYS: Record<MetricsWindow, number> = {
   '1h': 1,
@@ -112,15 +134,20 @@ export async function getMetrics(window: MetricsWindow, db: D1Database): Promise
  * full-scan version was — the corpus only changes when ingest runs.
  */
 async function loadKpis(db: D1Database, now: number): Promise<MetricsKpis> {
-  const snapshot = await db
-    .prepare(
-      `SELECT metric_key, value FROM cve_metrics_daily
-       WHERE metric_date = (SELECT MAX(metric_date) FROM cve_metrics_daily)`,
-    )
-    .all<{ metric_key: string; value: number }>();
+  const snapshot = await tryRollup(
+    async () =>
+      (
+        await db
+          .prepare(
+            `SELECT metric_key, value FROM cve_metrics_daily
+           WHERE metric_date = (SELECT MAX(metric_date) FROM cve_metrics_daily)`,
+          )
+          .all<{ metric_key: string; value: number }>()
+      ).results,
+  );
 
-  if (snapshot.results.length > 0) {
-    const m = new Map(snapshot.results.map((r) => [r.metric_key, r.value]));
+  if (snapshot !== null) {
+    const m = new Map(snapshot.map((r) => [r.metric_key, r.value]));
     return {
       totalCves: m.get('total_cves') ?? 0,
       criticalCount: m.get('severity_critical') ?? 0,
@@ -163,16 +190,21 @@ async function severityFromRollup(
   db: D1Database,
   cutoffMs: number,
 ): Promise<MetricsSeries['severityDistribution']> {
-  const res = await db
-    .prepare(
-      `SELECT severity, SUM(cve_count) AS count
-       FROM cve_rollup_daily WHERE day >= ?
-       GROUP BY severity ORDER BY count DESC`,
-    )
-    .bind(dayKey(cutoffMs))
-    .all<SeverityRow>();
-  if (res.results.length === 0) return severityFromBase(db, cutoffMs);
-  return mapSeverity(res.results);
+  const rows = await tryRollup(
+    async () =>
+      (
+        await db
+          .prepare(
+            `SELECT severity, SUM(cve_count) AS count
+           FROM cve_rollup_daily WHERE day >= ?
+           GROUP BY severity ORDER BY count DESC`,
+          )
+          .bind(dayKey(cutoffMs))
+          .all<SeverityRow>()
+      ).results,
+  );
+  if (rows === null) return severityFromBase(db, cutoffMs);
+  return mapSeverity(rows);
 }
 
 async function severityFromBase(
@@ -204,16 +236,21 @@ async function velocityFromRollup(
   cutoffMs: number,
   days: number,
 ): Promise<VelocityRow[]> {
-  const res = await db
-    .prepare(
-      `SELECT day, SUM(cve_count) AS count
-       FROM cve_rollup_daily WHERE day >= ?
-       GROUP BY day ORDER BY day DESC LIMIT ?`,
-    )
-    .bind(dayKey(cutoffMs), days + 1)
-    .all<{ day: number; count: number }>();
-  if (res.results.length === 0) return velocityFromBase(db, cutoffMs, days);
-  return res.results.map((r) => ({ date: dayKeyToIso(r.day), count: r.count }));
+  const rows = await tryRollup(
+    async () =>
+      (
+        await db
+          .prepare(
+            `SELECT day, SUM(cve_count) AS count
+           FROM cve_rollup_daily WHERE day >= ?
+           GROUP BY day ORDER BY day DESC LIMIT ?`,
+          )
+          .bind(dayKey(cutoffMs), days + 1)
+          .all<{ day: number; count: number }>()
+      ).results,
+  );
+  if (rows === null) return velocityFromBase(db, cutoffMs, days);
+  return rows.map((r) => ({ date: dayKeyToIso(r.day), count: r.count }));
 }
 
 async function velocityFromBase(
@@ -238,16 +275,21 @@ async function vendorsFromRollup(
   db: D1Database,
   cutoffMs: number,
 ): Promise<MetricsSeries['topVendors']> {
-  const res = await db
-    .prepare(
-      `SELECT vendor, SUM(cve_count) AS cve_count, SUM(kev_count) AS kev_count
-       FROM cve_rollup_vendor_daily WHERE day >= ?
-       GROUP BY vendor ORDER BY cve_count DESC LIMIT ?`,
-    )
-    .bind(dayKey(cutoffMs), TOP_VENDOR_LIMIT)
-    .all<VendorRow>();
-  if (res.results.length === 0) return vendorsFromBase(db, cutoffMs);
-  return mapVendors(res.results);
+  const rows = await tryRollup(
+    async () =>
+      (
+        await db
+          .prepare(
+            `SELECT vendor, SUM(cve_count) AS cve_count, SUM(kev_count) AS kev_count
+           FROM cve_rollup_vendor_daily WHERE day >= ?
+           GROUP BY vendor ORDER BY cve_count DESC LIMIT ?`,
+          )
+          .bind(dayKey(cutoffMs), TOP_VENDOR_LIMIT)
+          .all<VendorRow>()
+      ).results,
+  );
+  if (rows === null) return vendorsFromBase(db, cutoffMs);
+  return mapVendors(rows);
 }
 
 async function vendorsFromBase(
@@ -290,16 +332,21 @@ async function kevInflowFromRollup(
   cutoffMs: number,
   days: number,
 ): Promise<KevInflowRow[]> {
-  const res = await db
-    .prepare(
-      `SELECT day, kev_count AS count
-       FROM cve_rollup_kev_daily WHERE day >= ?
-       ORDER BY day DESC LIMIT ?`,
-    )
-    .bind(dayKey(cutoffMs), days + 1)
-    .all<{ day: number; count: number }>();
-  if (res.results.length === 0) return kevInflowFromBase(db, cutoffMs, days);
-  return res.results.map((r) => ({ date: dayKeyToIso(r.day), count: r.count }));
+  const rows = await tryRollup(
+    async () =>
+      (
+        await db
+          .prepare(
+            `SELECT day, kev_count AS count
+           FROM cve_rollup_kev_daily WHERE day >= ?
+           ORDER BY day DESC LIMIT ?`,
+          )
+          .bind(dayKey(cutoffMs), days + 1)
+          .all<{ day: number; count: number }>()
+      ).results,
+  );
+  if (rows === null) return kevInflowFromBase(db, cutoffMs, days);
+  return rows.map((r) => ({ date: dayKeyToIso(r.day), count: r.count }));
 }
 
 async function kevInflowFromBase(

@@ -195,3 +195,48 @@ describe('getMetrics rollup read path', { timeout: 30_000 }, () => {
 function isoDay(ms: number): string {
   return new Date(ms).toISOString().slice(0, 10);
 }
+
+describe('getMetrics without the rollup tables', { timeout: 30_000 }, () => {
+  beforeEach(async () => {
+    await applyD1Migrations(env.DB, env.TEST_MIGRATIONS);
+    // Simulate a Worker deployed ahead of migration 0014. This is not
+    // hypothetical: on 2026-11-02 applying migrations to production was
+    // blocked for most of a day by the account's D1 daily write cap, while
+    // the Worker deploy itself was unaffected. The homepage must not depend
+    // on a schema change having landed.
+    await env.DB.batch([
+      env.DB.prepare('DROP TABLE IF EXISTS cve_rollup_daily'),
+      env.DB.prepare('DROP TABLE IF EXISTS cve_rollup_vendor_daily'),
+      env.DB.prepare('DROP TABLE IF EXISTS cve_rollup_kev_daily'),
+    ]);
+  });
+  afterEach(async () => {
+    await reset();
+  });
+
+  it('still answers every window from the base tables', async () => {
+    const now = Date.now();
+    await seedCve('CVE-2026-9001', now - 2 * DAY_MS, 'CRITICAL');
+    await seedCve('CVE-2026-9002', now - 2 * DAY_MS, 'HIGH');
+    await env.DB.prepare(
+      `INSERT INTO cpe (cve_id, cpe_uri, part, vendor, product)
+       VALUES ('CVE-2026-9001', 'cpe:2.3:a:acme:widget:*:*:*:*:*:*:*:*', 'a', 'acme', 'widget')`,
+    ).run();
+
+    for (const window of ['1h', '24h', '7d', '30d', '90d'] as const) {
+      const m = await getMetrics(window, env.DB);
+      expect(m.window).toBe(window);
+      // KPIs come from the base-table fallback (no snapshot seeded).
+      expect(m.kpis.totalCves).toBe(2);
+    }
+
+    // The 7d window would normally use the rollups; it must degrade to the
+    // base tables rather than throw.
+    const sevenDay = await getMetrics('7d', env.DB);
+    expect(sevenDay.series.severityDistribution.map((s) => s.severity).sort()).toEqual([
+      'CRITICAL',
+      'HIGH',
+    ]);
+    expect(sevenDay.series.topVendors).toEqual([{ vendor: 'acme', cveCount: 1, kevCount: 0 }]);
+  });
+});
