@@ -52,6 +52,62 @@ async function seedSyntheticCves(count: number): Promise<void> {
   await env.DB.batch(statements);
 }
 
+/**
+ * Populate the dashboard's read sources (day-grain rollups + daily snapshot)
+ * FROM the seeded base rows, exactly as the ingest aging-sweep does — same
+ * INSERT…SELECT the rollup builder runs (apps/ingest/lib/server/rollups.ts).
+ * The dashboard reads only these, never a live corpus scan, so this is the
+ * realistic state under test.
+ */
+async function seedDashboardRollups(): Promise<void> {
+  const day = `CAST(strftime('%Y%m%d', published_at / 1000, 'unixepoch') AS INTEGER)`;
+  const kevDay = `CAST(strftime('%Y%m%d', kev_date_added / 1000, 'unixepoch') AS INTEGER)`;
+  await env.DB.batch([
+    env.DB.prepare(
+      // COALESCE to 'NONE': production's writeD1 stores a missing severity as
+      // 'NONE', never NULL, so the rollup's NOT NULL column never sees null.
+      // This synthetic seeder inserts raw NULL severities, so normalize here
+      // to match how the real pipeline would have written them.
+      `INSERT INTO cve_rollup_daily (day, severity, cve_count)
+       SELECT ${day} AS day, COALESCE(severity, 'NONE') AS severity, COUNT(*)
+       FROM cve GROUP BY day, COALESCE(severity, 'NONE')`,
+    ),
+    env.DB.prepare(
+      `INSERT INTO cve_rollup_kev_daily (day, kev_count)
+       SELECT ${kevDay} AS day, COUNT(*) FROM cve_state
+       WHERE kev_listed = 1 AND kev_date_added IS NOT NULL GROUP BY day`,
+    ),
+    env.DB.prepare(
+      `INSERT INTO cve_rollup_vendor_daily (day, vendor, cve_count, kev_count)
+       SELECT ${day.replace('published_at', 'c.published_at')} AS day, p.vendor,
+              COUNT(DISTINCT p.cve_id),
+              COUNT(DISTINCT CASE WHEN s.kev_listed = 1 THEN p.cve_id END)
+       FROM cve c JOIN cpe p ON p.cve_id = c.cve_id
+       LEFT JOIN cve_state s ON s.cve_id = c.cve_id
+       GROUP BY day, p.vendor`,
+    ),
+  ]);
+  // Daily KPI snapshot (the aging sweep writes these keys).
+  const today = Number(new Date().toISOString().slice(0, 10).replace(/-/g, ''));
+  const counts = await env.DB.prepare(
+    `SELECT COUNT(*) AS total,
+            SUM(CASE WHEN severity='CRITICAL' THEN 1 ELSE 0 END) AS crit,
+            (SELECT COUNT(*) FROM cve_state WHERE kev_listed=1) AS kev
+     FROM cve`,
+  ).first<{ total: number; crit: number; kev: number }>();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO cve_metrics_daily (metric_date, metric_key, value) VALUES (?, 'total_cves', ?)`,
+    ).bind(today, counts?.total ?? 0),
+    env.DB.prepare(
+      `INSERT INTO cve_metrics_daily (metric_date, metric_key, value) VALUES (?, 'severity_critical', ?)`,
+    ).bind(today, counts?.crit ?? 0),
+    env.DB.prepare(
+      `INSERT INTO cve_metrics_daily (metric_date, metric_key, value) VALUES (?, 'kev_listed', ?)`,
+    ).bind(today, counts?.kev ?? 0),
+  ]);
+}
+
 function countMatches(html: string, re: RegExp): number {
   return html.match(re)?.length ?? 0;
 }
@@ -69,6 +125,11 @@ describe('dashboard SSR (GET /)', { timeout: 30_000 }, () => {
 
   it('renders chart placeholders and data tables, but no LayerChart markup', async () => {
     await seedSyntheticCves(40);
+    // The dashboard reads the day-grain rollups + the daily snapshot (both
+    // written off the request path by the aging sweep), NOT a live corpus
+    // scan — so seed those, which is the real state the dashboard renders
+    // from. Without them the 90d view correctly shows "warming up".
+    await seedDashboardRollups();
 
     const res = await SELF.fetch('http://localhost/');
     const html = await res.text();

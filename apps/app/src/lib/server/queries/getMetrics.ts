@@ -69,6 +69,25 @@ const WINDOW_DAYS: Record<MetricsWindow, number> = {
 /** Windows small enough that the base tables are cheaper than the rollups. */
 const EXACT_WINDOWS: ReadonlySet<MetricsWindow> = new Set<MetricsWindow>(['1h', '24h']);
 
+/**
+ * When a rollup/snapshot is missing, the WINDOWED (7d+) paths must NOT fall
+ * back to a full-corpus scan. Those scans (a COUNT(*) over `cve`, a GROUP BY
+ * over the whole cpe×cve join) are 1-3M rows EACH, and they run on the
+ * request path — so a handful of uncached dashboard views burned the entire
+ * 5M-row/day D1 free-tier read cap before 09:00 daily (measured 2026-11-02).
+ *
+ * The rollups and the cve_metrics_daily snapshot are written OFF the request
+ * path by the ingest/aging cron, so they are the only acceptable source for
+ * these corpus-wide numbers. If they aren't populated yet, the dashboard
+ * renders its "warming up / offline" empty state rather than paying a scan it
+ * can't afford. This permanently removes the dashboard's ability to exhaust
+ * the read quota — the single biggest consumer on the platform.
+ *
+ * The 1h/24h windows are exempt (see EXACT_WINDOWS): those are bounded by
+ * idx_cve_published_at to a few hundred rows and are genuinely cheap, so they
+ * keep their exact base-table path.
+ */
+
 const TOP_VENDOR_LIMIT = 10;
 
 interface SeverityRow {
@@ -156,32 +175,15 @@ async function loadKpis(db: D1Database, now: number): Promise<MetricsKpis> {
     };
   }
 
-  // No snapshot yet (fresh database, or deployed before the first sweep).
-  // Pay the full scan once rather than render zeros.
-  const row = await db
-    .prepare(
-      `SELECT COUNT(*)                                               AS total_cves,
-              SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) AS critical_count,
-              (SELECT COUNT(*) FROM cve_state WHERE kev_listed = 1)  AS kev_count,
-              (SELECT AVG(epss_percentile) FROM cve_state
-               WHERE epss_percentile IS NOT NULL
-                 AND epss_updated_at > ?)                            AS mean_epss_7d
-       FROM cve`,
-    )
-    .bind(now - 7 * 86_400_000)
-    .first<{
-      total_cves: number;
-      critical_count: number;
-      kev_count: number;
-      mean_epss_7d: number | null;
-    }>();
-
-  return {
-    totalCves: row?.total_cves ?? 0,
-    criticalCount: row?.critical_count ?? 0,
-    kevCount: row?.kev_count ?? 0,
-    meanEpssPercentile7d: row?.mean_epss_7d ?? 0,
-  };
+  // No snapshot yet (fresh database, or deployed before the first aging
+  // sweep). Return zeros rather than paying the ~3.3M-row corpus COUNT(*) on
+  // the request path — that "pay the scan once" used to run on EVERY uncached
+  // pageview (the snapshot was never populated), and a few dozen of those a
+  // day exhausted the whole read quota. The dashboard shows its warming-up
+  // state until the aging sweep writes cve_metrics_daily (02:30 UTC cron),
+  // off the request path. `now` is retained in the signature for callers.
+  void now;
+  return { totalCves: 0, criticalCount: 0, kevCount: 0, meanEpssPercentile7d: 0 };
 }
 
 // ── Severity distribution ────────────────────────────────────────────────────
@@ -203,7 +205,8 @@ async function severityFromRollup(
           .all<SeverityRow>()
       ).results,
   );
-  if (rows === null) return severityFromBase(db, cutoffMs);
+  // Rollup missing → empty, NOT a corpus scan (see EXACT_WINDOWS comment).
+  if (rows === null) return [];
   return mapSeverity(rows);
 }
 
@@ -249,7 +252,8 @@ async function velocityFromRollup(
           .all<{ day: number; count: number }>()
       ).results,
   );
-  if (rows === null) return velocityFromBase(db, cutoffMs, days);
+  // Rollup missing → empty, NOT a corpus scan (see EXACT_WINDOWS comment).
+  if (rows === null) return [];
   return rows.map((r) => ({ date: dayKeyToIso(r.day), count: r.count }));
 }
 
@@ -288,7 +292,9 @@ async function vendorsFromRollup(
           .all<VendorRow>()
       ).results,
   );
-  if (rows === null) return vendorsFromBase(db, cutoffMs);
+  // Rollup missing → empty, NOT the cpe×cve corpus join (the single most
+  // expensive query in the app; see EXACT_WINDOWS comment).
+  if (rows === null) return [];
   return mapVendors(rows);
 }
 
@@ -345,7 +351,10 @@ async function kevInflowFromRollup(
           .all<{ day: number; count: number }>()
       ).results,
   );
-  if (rows === null) return kevInflowFromBase(db, cutoffMs, days);
+  // Rollup missing → empty, NOT a scan (see EXACT_WINDOWS comment). KEV inflow
+  // is served by the idx_state_kev_partial index so its scan is cheaper, but
+  // kept consistent: windowed numbers come only from the rollups.
+  if (rows === null) return [];
   return rows.map((r) => ({ date: dayKeyToIso(r.day), count: r.count }));
 }
 

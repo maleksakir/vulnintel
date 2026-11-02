@@ -16,9 +16,11 @@ import { getMetrics } from '../src/lib/server/queries/getMetrics';
 // Two properties matter and are pinned here:
 //   1. The rollup answer EQUALS the base-table answer. Precomputation is only
 //      justified if it's exact, not an approximation.
-//   2. An empty rollup falls back to the base tables, so a deploy landing
-//      before the first post-migration aging sweep shows real numbers instead
-//      of zeros.
+//   2. A MISSING or empty rollup makes the windowed (7d+) views return EMPTY,
+//      never a full-corpus scan — those scans on the request path exhausted
+//      the free-tier D1 read quota (2026-11-02). Only the exact 1h/24h
+//      windows, bounded by idx_cve_published_at, read the base tables live.
+//      The rollups are filled off the request path by the aging-sweep cron.
 
 const DAY_MS = 86_400_000;
 
@@ -98,15 +100,30 @@ describe('getMetrics rollup read path', { timeout: 30_000 }, () => {
     expect(m.kpis.totalCves).toBe(200);
   });
 
-  it('falls back to the base tables when no snapshot exists yet', async () => {
-    // The state right after migrations are applied but before the first aging
-    // sweep. Rendering zeros here would look like data loss.
+  it('returns zero KPIs (NOT a corpus scan) when no snapshot exists yet', async () => {
+    // The state right after migrations but before the first aging sweep. The
+    // KPI panel must NOT fall back to a full-corpus COUNT(*) on the request
+    // path — that scan ran on every uncached pageview and exhausted the
+    // free-tier read quota (measured 2026-11-02). Zeros now; the dashboard
+    // shows its "warming up" state until the aging sweep writes the snapshot.
     await seedCve('CVE-2026-0001', Date.now() - 3600_000, 'CRITICAL');
     await seedCve('CVE-2026-0002', Date.now() - 3600_000, 'HIGH');
 
     const m = await getMetrics('7d', env.DB);
-    expect(m.kpis.totalCves).toBe(2);
-    expect(m.kpis.criticalCount).toBe(1);
+    expect(m.kpis.totalCves).toBe(0);
+    expect(m.kpis.criticalCount).toBe(0);
+  });
+
+  it('a 1h/24h window STILL reads the base tables (bounded, index-covered)', async () => {
+    // The exact short windows stay exact — idx_cve_published_at keeps them to
+    // a few hundred rows, so they are safe to compute live and must not be
+    // caught by the no-corpus-scan rule that governs the 7d+ windows.
+    await seedCve('CVE-2026-0010', Date.now() - 3600_000, 'CRITICAL');
+    await seedCve('CVE-2026-0011', Date.now() - 3600_000, 'LOW');
+
+    const m = await getMetrics('24h', env.DB);
+    expect(m.series.severityDistribution.find((s) => s.severity === 'CRITICAL')?.count).toBe(1);
+    expect(m.series.severityDistribution.find((s) => s.severity === 'LOW')?.count).toBe(1);
   });
 
   it('a 7d window sums the rollup, and the sum matches the base-table count', async () => {
@@ -135,13 +152,15 @@ describe('getMetrics rollup read path', { timeout: 30_000 }, () => {
     expect(baseAnswer.series.severityDistribution).toHaveLength(0);
   });
 
-  it('a 7d window falls back to the base tables when the rollup is empty', async () => {
+  it('a 7d window returns EMPTY series (NOT a corpus scan) when the rollup is empty', async () => {
     const now = Date.now();
     await seedCve('CVE-2026-2001', now - 2 * DAY_MS, 'MEDIUM');
-    // No rollup rows at all.
+    // No rollup rows at all — the windowed path must not scan `cve` to cover
+    // for a missing rollup. It returns empty; the dashboard shows "warming up"
+    // until the aging sweep populates the rollups off the request path.
 
     const m = await getMetrics('7d', env.DB);
-    expect(m.series.severityDistribution).toEqual([{ severity: 'MEDIUM', count: 1 }]);
+    expect(m.series.severityDistribution).toEqual([]);
   });
 
   it('top vendors come from the vendor rollup, summed across days', async () => {
@@ -214,29 +233,32 @@ describe('getMetrics without the rollup tables', { timeout: 30_000 }, () => {
     await reset();
   });
 
-  it('still answers every window from the base tables', async () => {
+  it('never 500s when the rollup tables are absent — degrades per window', async () => {
     const now = Date.now();
-    await seedCve('CVE-2026-9001', now - 2 * DAY_MS, 'CRITICAL');
-    await seedCve('CVE-2026-9002', now - 2 * DAY_MS, 'HIGH');
+    await seedCve('CVE-2026-9001', now - 2 * 3600_000, 'CRITICAL'); // within 24h
+    await seedCve('CVE-2026-9002', now - 2 * DAY_MS, 'HIGH'); // older than 24h
     await env.DB.prepare(
       `INSERT INTO cpe (cve_id, cpe_uri, part, vendor, product)
        VALUES ('CVE-2026-9001', 'cpe:2.3:a:acme:widget:*:*:*:*:*:*:*:*', 'a', 'acme', 'widget')`,
     ).run();
 
+    // Every window resolves (no throw) even with the rollup tables dropped.
     for (const window of ['1h', '24h', '7d', '30d', '90d'] as const) {
       const m = await getMetrics(window, env.DB);
       expect(m.window).toBe(window);
-      // KPIs come from the base-table fallback (no snapshot seeded).
-      expect(m.kpis.totalCves).toBe(2);
     }
 
-    // The 7d window would normally use the rollups; it must degrade to the
-    // base tables rather than throw.
+    // 24h is the exact, index-bounded path: it still reads the base tables and
+    // sees the recent CVE.
+    const day = await getMetrics('24h', env.DB);
+    expect(day.series.severityDistribution.find((s) => s.severity === 'CRITICAL')?.count).toBe(1);
+
+    // 7d must NOT scan the corpus to cover for the missing rollup — empty
+    // series + zero KPIs, so the dashboard shows "warming up" rather than
+    // burning the read quota on a scan.
     const sevenDay = await getMetrics('7d', env.DB);
-    expect(sevenDay.series.severityDistribution.map((s) => s.severity).sort()).toEqual([
-      'CRITICAL',
-      'HIGH',
-    ]);
-    expect(sevenDay.series.topVendors).toEqual([{ vendor: 'acme', cveCount: 1, kevCount: 0 }]);
+    expect(sevenDay.series.severityDistribution).toEqual([]);
+    expect(sevenDay.series.topVendors).toEqual([]);
+    expect(sevenDay.kpis.totalCves).toBe(0);
   });
 });

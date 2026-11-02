@@ -36,6 +36,19 @@
   const velocityTotal = $derived(velocity.reduce((sum, d) => sum + d.count, 0));
   const kevInflow = $derived(fillDailySeries(data.series.kevInflow, data.generatedAt, WINDOW_DAYS));
   const kevInflowTotal = $derived(kevInflow.reduce((sum, d) => sum + d.count, 0));
+
+  // "Warming up": the datastore is reachable (no dataError) but the rollups /
+  // daily snapshot aren't populated yet, so every number is zero. Shown as a
+  // distinct, calmer notice than the hard "offline" one — this is the
+  // expected state between a fresh deploy/migration and the first aging-sweep
+  // cron that fills the rollups.
+  const warmingUp = $derived(
+    !data.dataError &&
+      data.kpis.totalCves === 0 &&
+      severityTotal === 0 &&
+      velocityTotal === 0 &&
+      kevInflowTotal === 0,
+  );
 </script>
 
 <svelte:head>
@@ -62,6 +75,17 @@
 
   {#if data.dataError}
     <DataOfflineNotice what="Dashboard telemetry" />
+  {:else if warmingUp}
+    <div class="warming" role="status">
+      <span class="live-dot" aria-hidden="true"></span>
+      <div>
+        <strong>Telemetry initializing.</strong>
+        <p>
+          The intelligence feed is populating its rollups. Metrics appear automatically after the
+          next ingest cycle completes — no action needed.
+        </p>
+      </div>
+    </div>
   {/if}
 
   <!-- KPI cards -->
@@ -212,6 +236,18 @@
     letter-spacing: var(--tracking-tight);
   }
   .page-subtitle { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: var(--space-2) 0 0; }
+
+  .warming {
+    display: flex; gap: var(--space-3); align-items: flex-start;
+    margin-block-end: var(--space-6);
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-brand-border);
+    border-radius: var(--radius-lg);
+    background: var(--color-brand-subtle);
+    color: var(--color-brand-text);
+  }
+  .warming strong { display: block; margin-bottom: 0.2rem; font-size: var(--text-sm); }
+  .warming p { margin: 0; font-size: var(--text-xs); line-height: var(--leading-snug); color: var(--color-text-secondary); }
 
   .kpi-grid {
     display: grid; grid-template-columns: repeat(4, 1fr);
