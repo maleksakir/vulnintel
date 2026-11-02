@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { PageData } from './$types';
   import ChartIsland from '$lib/ui/charts/ChartIsland.svelte';
+  import DataOfflineNotice from '$lib/ui/DataOfflineNotice.svelte';
   import {
     dailyTableRows,
     fillDailySeries,
@@ -58,6 +59,10 @@
       </dl>
     </div>
   </header>
+
+  {#if data.dataError}
+    <DataOfflineNotice what="Dashboard telemetry" />
+  {/if}
 
   <!-- KPI cards -->
   <div class="cmd-heading"><span class="cmd-heading__text">Threat Posture</span></div>

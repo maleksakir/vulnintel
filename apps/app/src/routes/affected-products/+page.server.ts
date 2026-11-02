@@ -28,23 +28,31 @@ export const load: PageServerLoad = async ({ url, platform }) => {
   const validation = validateAffectedProductsParams(url.searchParams);
 
   if (!db || !validation.ok) {
-    return { rows: [], nextCursor: null, vendor: '', product: '' };
+    return { rows: [], nextCursor: null, vendor: '', product: '', dataError: false };
   }
 
   const { vendor, product, minCvss, cursor } = validation.value;
   const isDefaultView =
     vendor === undefined && product === undefined && minCvss === undefined && cursor === undefined;
 
-  const result: AffectedProductsResponse =
-    isDefaultView && env.CACHE
-      ? await cacheReadJson(env.CACHE, DEFAULT_VIEW_KEY, TTL, () =>
-          getAffectedProducts(validation.value, db),
-        )
-      : await getAffectedProducts(validation.value, db);
+  // Degrade to empty + a flag if D1 is unavailable on a cache miss (free-tier
+  // read cap / outage), rather than 500ing the page.
+  try {
+    const result: AffectedProductsResponse =
+      isDefaultView && env.CACHE
+        ? await cacheReadJson(env.CACHE, DEFAULT_VIEW_KEY, TTL, () =>
+            getAffectedProducts(validation.value, db),
+          )
+        : await getAffectedProducts(validation.value, db);
 
-  return {
-    ...result,
-    vendor: vendor ?? '',
-    product: product ?? '',
-  };
+    return { ...result, vendor: vendor ?? '', product: product ?? '', dataError: false };
+  } catch {
+    return {
+      rows: [],
+      nextCursor: null,
+      vendor: vendor ?? '',
+      product: product ?? '',
+      dataError: true,
+    };
+  }
 };

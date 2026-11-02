@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DataOfflineNotice from '$lib/ui/DataOfflineNotice.svelte';
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import type { PageData } from './$types';
@@ -55,7 +56,9 @@
     {/if}
   </form>
 
-  {#if data.rows.length === 0}
+  {#if data.dataError}
+    <DataOfflineNotice what="Product exposure data" />
+  {:else if data.rows.length === 0}
     <div class="empty-state">
       <span class="empty-state__title">No signal</span>
       <span>No affected products match the current filter.</span>

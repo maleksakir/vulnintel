@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DataOfflineNotice from '$lib/ui/DataOfflineNotice.svelte';
   import PageHeader from '$lib/ui/PageHeader.svelte';
   import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import type { PageData } from './$types';
@@ -44,6 +45,10 @@
       aria-current={data.tab === 'epss' ? 'page' : undefined}
     >EPSS Top CVEs</a>
   </nav>
+
+  {#if data.dataError}
+    <DataOfflineNotice what="Threat-intel feed" />
+  {/if}
 
   {#if data.tab === 'kev'}
     <section aria-label="CISA Known Exploited Vulnerabilities">

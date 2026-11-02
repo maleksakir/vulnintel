@@ -29,23 +29,30 @@ export const load: PageServerLoad = async ({ url, platform }) => {
   const tab = url.searchParams.get('tab') === 'epss' ? 'epss' : 'kev';
   const cursor = url.searchParams.get('cursor') ?? undefined;
 
+  const EMPTY = { rows: [], nextCursor: null };
   if (!db) {
-    return { tab, kev: { rows: [], nextCursor: null }, epss: { rows: [], nextCursor: null } };
+    return { tab, kev: EMPTY, epss: EMPTY, dataError: false };
   }
 
   const canCache = !cursor && !!env.CACHE;
 
-  if (tab === 'epss') {
-    const epss: EpssListResponse = canCache
-      ? await cacheReadJson(env.CACHE, EPSS_KEY, TTL, () =>
-          getEpssList(db, undefined, EPSS_PAGE_SIZE),
-        )
-      : await getEpssList(db, cursor, EPSS_PAGE_SIZE);
-    return { tab, kev: { rows: [], nextCursor: null }, epss };
-  }
+  // A cache miss falls through to D1; degrade to empty + a flag if D1 is
+  // unavailable (free-tier read cap / outage) rather than 500ing the page.
+  try {
+    if (tab === 'epss') {
+      const epss: EpssListResponse = canCache
+        ? await cacheReadJson(env.CACHE, EPSS_KEY, TTL, () =>
+            getEpssList(db, undefined, EPSS_PAGE_SIZE),
+          )
+        : await getEpssList(db, cursor, EPSS_PAGE_SIZE);
+      return { tab, kev: EMPTY, epss, dataError: false };
+    }
 
-  const kev: KevListResponse = canCache
-    ? await cacheReadJson(env.CACHE, KEV_KEY, TTL, () => getKevList(db, undefined, KEV_PAGE_SIZE))
-    : await getKevList(db, cursor, KEV_PAGE_SIZE);
-  return { tab, kev, epss: { rows: [], nextCursor: null } };
+    const kev: KevListResponse = canCache
+      ? await cacheReadJson(env.CACHE, KEV_KEY, TTL, () => getKevList(db, undefined, KEV_PAGE_SIZE))
+      : await getKevList(db, cursor, KEV_PAGE_SIZE);
+    return { tab, kev, epss: EMPTY, dataError: false };
+  } catch {
+    return { tab, kev: EMPTY, epss: EMPTY, dataError: true };
+  }
 };

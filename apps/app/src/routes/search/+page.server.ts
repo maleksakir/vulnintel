@@ -42,11 +42,24 @@ export const load: PageServerLoad = async ({ url, platform, locals }) => {
     return { query: q, results: [], truncated: false, quotaError: null, filters };
   }
 
-  const { response, quotaError } = await searchCves(
-    { query: q, filters, limit: 25 },
-    platform!,
-    locals.clientIp,
-  );
-
-  return { query: q, ...response, quotaError: quotaError ?? null, filters };
+  // searchCves hits D1 (FTS + hydrate) and Workers AI (embedding). If the
+  // free-tier daily cap is reached for either, or D1 is otherwise unavailable,
+  // the throw used to 500 the page; surface it through the same calm
+  // quota-notice path the in-band quota gate already uses instead.
+  try {
+    const { response, quotaError } = await searchCves(
+      { query: q, filters, limit: 25 },
+      platform!,
+      locals.clientIp,
+    );
+    return { query: q, ...response, quotaError: quotaError ?? null, filters };
+  } catch {
+    return {
+      query: q,
+      results: [],
+      truncated: false,
+      quotaError: 'GLOBAL_QUOTA_EXHAUSTED' as const,
+      filters,
+    };
+  }
 };
