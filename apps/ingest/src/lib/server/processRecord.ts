@@ -563,6 +563,40 @@ const SELECT_PARAM_CHUNK_SIZE = 100;
 const WRITE_SUB_BATCH_SIZE = 500;
 
 /**
+ * Minimum EPSS movement worth a D1 write.
+ *
+ * FIRST.org recomputes EPSS for its whole corpus every day, so almost every
+ * score changes a little every day. Comparing for exact inequality therefore
+ * marked ~60k of our ~119k CVEs as "changed" daily, and D1 billed 117,450
+ * written rows for it on 2026-11-02 — the entire 100k/day free-tier write
+ * allowance, consumed by EPSS before 05:00 UTC, which then blocked schema
+ * migrations and every other write in the account.
+ *
+ * These thresholds are set against how the value is actually USED, not
+ * arbitrarily: EPSS is rendered as a percentage with one or two decimals and
+ * fed into priority scoring as a coarse signal. A score moving 0.00042 ->
+ * 0.00043, or a percentile moving 0.9412 -> 0.9413, cannot change a rendered
+ * figure or reorder a result. A write for it buys nothing and costs quota
+ * that ingestion needs.
+ *
+ * 0.001 on the score is a tenth of a percentage point; 0.005 on the
+ * percentile is half a percentile. A real exploitability shift — the kind
+ * worth acting on — clears both by orders of magnitude, and arriving a day
+ * late on a sub-threshold drift has no operational meaning.
+ */
+const EPSS_SCORE_EPSILON = 0.001;
+const EPSS_PERCENTILE_EPSILON = 0.005;
+
+function isMaterialEpssChange(cur: EpssStateRow, p: EpssPatch): boolean {
+  // First time we have any EPSS at all for this CVE: always write.
+  if (cur.epss_score === null || cur.epss_percentile === null) return true;
+  return (
+    Math.abs(cur.epss_score - p.epssScore) >= EPSS_SCORE_EPSILON ||
+    Math.abs(cur.epss_percentile - p.epssPercentile) >= EPSS_PERCENTILE_EPSILON
+  );
+}
+
+/**
  * Batched version of the EPSS patch path. FIRST.org ships a full daily
  * snapshot (250k+ rows), not a delta — a SELECT-per-row change check (the
  * previous approach) burns one D1 read per row, ~250k/day on its own. This
@@ -597,7 +631,16 @@ export async function applyEpssPatchBatch(
 
   const changed = patches.filter((p) => {
     const cur = current.get(p.cveId);
-    return cur?.epss_score !== p.epssScore || cur?.epss_percentile !== p.epssPercentile;
+    // No cve_state row means we do not track this CVE at all. FIRST.org's
+    // snapshot covers ~399k CVEs; our 24-month corpus holds ~119k of them, so
+    // well over half of every snapshot is for CVEs we have never ingested.
+    // cve_state.cve_id REFERENCES cve(cve_id), so the old upsert's INSERT
+    // path could not create those rows anyway — it raised a foreign-key error
+    // that failed the whole db.batch, taking the legitimate updates batched
+    // alongside it down with it. Skipping them is both the correctness fix
+    // and the bulk of the write reduction.
+    if (!cur) return false;
+    return isMaterialEpssChange(cur, p);
   });
 
   if (changed.length === 0) return;
@@ -607,16 +650,17 @@ export async function applyEpssPatchBatch(
     const sub = changed.slice(i, i + WRITE_SUB_BATCH_SIZE);
     await env.DB.batch(
       sub.map((p) =>
+        // UPDATE, not an upsert: every row in `changed` is known to exist
+        // (see the filter above), and an INSERT path here can only ever
+        // violate the foreign key.
         env.DB.prepare(
-          `INSERT INTO cve_state
-             (cve_id, kev_listed, epss_score, epss_percentile, epss_updated_at, state_updated_at)
-           VALUES (?, 0, ?, ?, ?, ?)
-           ON CONFLICT (cve_id) DO UPDATE SET
-             epss_score       = excluded.epss_score,
-             epss_percentile  = excluded.epss_percentile,
-             epss_updated_at  = excluded.epss_updated_at,
-             state_updated_at = excluded.state_updated_at`,
-        ).bind(p.cveId, p.epssScore, p.epssPercentile, p.epssUpdatedAt, now),
+          `UPDATE cve_state SET
+             epss_score       = ?,
+             epss_percentile  = ?,
+             epss_updated_at  = ?,
+             state_updated_at = ?
+           WHERE cve_id = ?`,
+        ).bind(p.epssScore, p.epssPercentile, p.epssUpdatedAt, now, p.cveId),
       ),
     );
   }

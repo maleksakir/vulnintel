@@ -3,22 +3,77 @@ import { fetchKevCatalog } from '../adapters/kev';
 import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import type { Env } from '../types';
 
-// KEV_QUEUE message chunk size. CISA's KEV catalog is ~1,000+ entries total
-// (a full snapshot on every run, not a delta). A KevPatch is a flat shape —
-// cveId + two unix-ms numbers + the free-text kevRequiredAction string — so
-// most patches serialize to ~120-180 bytes. kevRequiredAction has no hard
-// upstream length bound, though (CISA sometimes writes a full remediation
-// sentence), so a conservative 500/chunk keeps a worst-case message well
-// under Cloudflare Queues' 128KB (131,072-byte) cap: even at a pessimistic
-// ~250 bytes/patch, 500 patches ≈ 125KB — and realistic catalogs measure
-// far smaller. (Don't raise this without re-measuring actual serialized
-// size, the same caveat EPSS_MESSAGE_CHUNK_SIZE carries in daily.ts.)
-const KEV_MESSAGE_CHUNK_SIZE = 500;
-// Cloudflare Queues' sendBatch() caps at 100 messages per call. At
-// ~1,000 catalog entries / KEV_MESSAGE_CHUNK_SIZE (500) = ~2 messages, one
-// call always suffices today; this loop is purely defensive against the
-// catalog growing or the chunk size shrinking later (same reasoning as the
-// MITRE/OSV sendBatch loops elsewhere in this worker).
+// KEV_QUEUE message bounds.
+//
+// This used to chunk by COUNT alone, at 500 patches per message, justified by
+// an estimate of "~250 bytes/patch pessimistic". Production disagreed: every
+// KEV run since that code shipped failed with
+//
+//   message in batch has length 187596 bytes which exceeds single message limit
+//
+// 187,596 / 500 = 375 bytes per patch, because CISA's kevRequiredAction is
+// routinely a full remediation sentence and has no upstream length bound. The
+// catalog is the actively-exploited-vulnerability feed, so a failing KEV run
+// means real KEV-listed CVEs go unflagged — the exact safety-relevant gap the
+// producer/consumer split was introduced to prevent, reintroduced by a
+// guessed constant.
+//
+// Chunking is now driven by MEASURED serialized size, the same way the NVD
+// producer does it (pipelines/nvdProducer.ts), with the count cap kept only as
+// a secondary bound. Guessing bytes per record is what failed; measuring them
+// cannot.
+const KEV_QUEUE_MAX_BYTES = 100_000;
+const KEV_QUEUE_MAX_PATCHES = 500;
+// `{"patches":[...]}`'s own wrapper plus per-element comma overhead — a small
+// fixed allowance rather than exact structural accounting, matching
+// NVD_MESSAGE_WRAPPER_OVERHEAD_BYTES.
+const KEV_MESSAGE_WRAPPER_OVERHEAD_BYTES = 256;
+
+function byteLength(s: string): number {
+  return new TextEncoder().encode(s).length;
+}
+
+/**
+ * Split patches into messages that each serialize to under
+ * KEV_QUEUE_MAX_BYTES. A single patch whose own serialized size exceeds the
+ * budget is dropped rather than enqueued: it could not be sent even alone,
+ * and silently retrying it forever would stall the catalog.
+ */
+export function chunkKevPatches(patches: KevPatch[]): {
+  messages: KevPatch[][];
+  oversized: KevPatch[];
+} {
+  const messages: KevPatch[][] = [];
+  const oversized: KevPatch[] = [];
+  let current: KevPatch[] = [];
+  let currentBytes = 0;
+
+  for (const patch of patches) {
+    const patchBytes = byteLength(JSON.stringify(patch));
+    if (patchBytes + KEV_MESSAGE_WRAPPER_OVERHEAD_BYTES > KEV_QUEUE_MAX_BYTES) {
+      oversized.push(patch);
+      continue;
+    }
+    if (
+      current.length >= KEV_QUEUE_MAX_PATCHES ||
+      currentBytes + patchBytes + KEV_MESSAGE_WRAPPER_OVERHEAD_BYTES > KEV_QUEUE_MAX_BYTES
+    ) {
+      if (current.length > 0) messages.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(patch);
+    currentBytes += patchBytes + 1; // +1 inter-element comma
+  }
+  if (current.length > 0) messages.push(current);
+
+  return { messages, oversized };
+}
+// Cloudflare Queues' sendBatch() caps at 100 messages per call. At ~1,800
+// catalog entries and ~375 bytes each, size-aware chunking yields ~7 messages,
+// so one call suffices today; this loop is defensive against the catalog
+// growing (same reasoning as the MITRE/OSV sendBatch loops elsewhere in this
+// worker).
 const QUEUES_SENDBATCH_MAX_MESSAGES = 100;
 
 /**
@@ -57,10 +112,14 @@ export async function runKevFastLane(env: Env, ctx: ExecutionContext): Promise<v
   try {
     const patches = await fetchKevCatalog();
 
-    const messages: { body: { patches: KevPatch[] } }[] = [];
-    for (let i = 0; i < patches.length; i += KEV_MESSAGE_CHUNK_SIZE) {
-      messages.push({ body: { patches: patches.slice(i, i + KEV_MESSAGE_CHUNK_SIZE) } });
+    const { messages: chunks, oversized } = chunkKevPatches(patches);
+    if (oversized.length > 0) {
+      // Visible, not silent: a patch too large to ever enqueue is a data
+      // problem upstream, and KEV data going missing must be noticeable.
+      failed += oversized.length;
+      lastError = `${oversized.length} KEV patch(es) exceeded the per-message byte budget (first: ${oversized[0]?.cveId})`;
     }
+    const messages = chunks.map((patches) => ({ body: { patches } }));
 
     for (let i = 0; i < messages.length; i += QUEUES_SENDBATCH_MAX_MESSAGES) {
       const slice = messages.slice(i, i + QUEUES_SENDBATCH_MAX_MESSAGES);

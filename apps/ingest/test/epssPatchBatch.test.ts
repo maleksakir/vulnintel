@@ -147,3 +147,169 @@ describe('applyEpssPatchBatch', () => {
     }
   }, 30_000);
 });
+
+describe('applyEpssPatchBatch write-volume guards', () => {
+  useCleanBindings();
+
+  /**
+   * FIRST.org recomputes EPSS for its whole corpus daily, so nearly every
+   * score drifts a little every day. Comparing for exact inequality marked
+   * ~60k of our ~119k CVEs as changed every day; D1 billed 117,450 written
+   * rows for it on 2026-11-02 — the entire 100k/day free-tier write
+   * allowance, gone before 05:00 UTC, which then blocked schema migrations
+   * and every other write in the account.
+   */
+  it('ignores drift too small to change a rendered figure or a ranking', async () => {
+    await seedCveRow({ cveId: 'CVE-2026-50001' });
+    await seedCveState({ cveId: 'CVE-2026-50001', epssScore: 0.00042, epssPercentile: 0.9412 });
+
+    const spies = spyOnBindings();
+    await applyEpssPatchBatch(
+      [
+        {
+          cveId: 'CVE-2026-50001',
+          epssScore: 0.00043, // +0.00001
+          epssPercentile: 0.9413, // +0.0001
+          epssUpdatedAt: Date.now(),
+        },
+      ],
+      testEnv,
+      createExecutionContext(),
+    );
+
+    expect(spies.dbBatch).not.toHaveBeenCalled();
+    expect(spies.cacheDelete).not.toHaveBeenCalled();
+  });
+
+  it('writes when the score moves materially', async () => {
+    await seedCveRow({ cveId: 'CVE-2026-50002' });
+    await seedCveState({ cveId: 'CVE-2026-50002', epssScore: 0.01, epssPercentile: 0.5 });
+
+    const ctx = createExecutionContext();
+    await applyEpssPatchBatch(
+      [
+        {
+          cveId: 'CVE-2026-50002',
+          epssScore: 0.012, // +0.002, over the 0.001 score epsilon
+          epssPercentile: 0.5,
+          epssUpdatedAt: Date.now(),
+        },
+      ],
+      testEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    const row = await testEnv.DB.prepare('SELECT epss_score FROM cve_state WHERE cve_id = ?')
+      .bind('CVE-2026-50002')
+      .first<{ epss_score: number }>();
+    expect(row?.epss_score).toBe(0.012);
+  });
+
+  it('writes when the percentile moves materially even if the score barely does', async () => {
+    await seedCveRow({ cveId: 'CVE-2026-50003' });
+    await seedCveState({ cveId: 'CVE-2026-50003', epssScore: 0.5, epssPercentile: 0.9 });
+
+    const ctx = createExecutionContext();
+    await applyEpssPatchBatch(
+      [
+        {
+          cveId: 'CVE-2026-50003',
+          epssScore: 0.5,
+          epssPercentile: 0.95, // +0.05, over the 0.005 percentile epsilon
+          epssUpdatedAt: Date.now(),
+        },
+      ],
+      testEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    const row = await testEnv.DB.prepare('SELECT epss_percentile FROM cve_state WHERE cve_id = ?')
+      .bind('CVE-2026-50003')
+      .first<{ epss_percentile: number }>();
+    expect(row?.epss_percentile).toBe(0.95);
+  });
+
+  it('always writes the first EPSS value for a CVE that had none', async () => {
+    await seedCveRow({ cveId: 'CVE-2026-50004' });
+    await seedCveState({ cveId: 'CVE-2026-50004' }); // null score/percentile
+
+    const ctx = createExecutionContext();
+    await applyEpssPatchBatch(
+      [
+        {
+          cveId: 'CVE-2026-50004',
+          epssScore: 0.00001, // tiny, but there was nothing before
+          epssPercentile: 0.00002,
+          epssUpdatedAt: Date.now(),
+        },
+      ],
+      testEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    const row = await testEnv.DB.prepare('SELECT epss_score FROM cve_state WHERE cve_id = ?')
+      .bind('CVE-2026-50004')
+      .first<{ epss_score: number }>();
+    expect(row?.epss_score).toBe(0.00001);
+  });
+
+  /**
+   * The correctness half of the fix. FIRST.org's snapshot covers ~399k CVEs;
+   * our 24-month corpus holds ~119k, so most of every snapshot is for CVEs we
+   * never ingested. cve_state.cve_id REFERENCES cve(cve_id), so the old
+   * upsert's INSERT path could not create those rows — it raised a
+   * foreign-key error that failed the whole db.batch and took the legitimate
+   * updates batched alongside it down with it. EPSS updates for CVEs we DO
+   * track were being silently lost.
+   */
+  it('skips CVEs we do not track, and still applies the ones we do', async () => {
+    await seedCveRow({ cveId: 'CVE-2026-50010' });
+    await seedCveState({ cveId: 'CVE-2026-50010', epssScore: 0.1, epssPercentile: 0.1 });
+
+    const ctx = createExecutionContext();
+    await applyEpssPatchBatch(
+      [
+        // Not in our corpus at all — previously an FK error that poisoned the
+        // batch; now simply skipped.
+        { cveId: 'CVE-1999-00001', epssScore: 0.9, epssPercentile: 0.9, epssUpdatedAt: Date.now() },
+        { cveId: 'CVE-2026-50010', epssScore: 0.8, epssPercentile: 0.8, epssUpdatedAt: Date.now() },
+      ],
+      testEnv,
+      ctx,
+    );
+    await waitOnExecutionContext(ctx);
+
+    // The tracked CVE's update survived.
+    const tracked = await testEnv.DB.prepare('SELECT epss_score FROM cve_state WHERE cve_id = ?')
+      .bind('CVE-2026-50010')
+      .first<{ epss_score: number }>();
+    expect(tracked?.epss_score).toBe(0.8);
+
+    // And no row was conjured for the untracked one.
+    const untracked = await testEnv.DB.prepare(
+      'SELECT COUNT(*) AS n FROM cve_state WHERE cve_id = ?',
+    )
+      .bind('CVE-1999-00001')
+      .first<{ n: number }>();
+    expect(untracked?.n).toBe(0);
+  });
+
+  it('a whole snapshot of untracked CVEs costs zero writes', async () => {
+    // The common case in production: more than half of every daily snapshot.
+    const patches = Array.from({ length: 200 }, (_, i) => ({
+      cveId: `CVE-1998-${String(i).padStart(5, '0')}`,
+      epssScore: 0.5,
+      epssPercentile: 0.5,
+      epssUpdatedAt: Date.now(),
+    }));
+
+    const spies = spyOnBindings();
+    await applyEpssPatchBatch(patches, testEnv, createExecutionContext());
+
+    expect(spies.dbBatch).not.toHaveBeenCalled();
+    expect(spies.cacheDelete).not.toHaveBeenCalled();
+  }, 30_000);
+});

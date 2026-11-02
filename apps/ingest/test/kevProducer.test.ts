@@ -1,7 +1,7 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
-import type { KevQueueMessage } from '@threat-lens/contracts';
+import type { KevPatch, KevQueueMessage } from '@threat-lens/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { runKevFastLane } from '../src/pipelines/kev';
+import { chunkKevPatches, runKevFastLane } from '../src/pipelines/kev';
 import { spyOnBindings, testEnv, useCleanBindings } from './helpers';
 
 // KEV queue PRODUCER coverage (pipelines/kev.ts). The fix's whole point:
@@ -140,4 +140,82 @@ describe('KEV queue producer (kev.ts)', () => {
       .first<{ last_status: string }>();
     expect(ingestRow?.last_status).toBe('FAILED');
   }, 30_000);
+});
+
+describe('chunkKevPatches message sizing', () => {
+  // Cloudflare Queues rejects any single message over 128KB (131,072 bytes).
+  // The producer originally chunked by COUNT alone, 500 patches per message,
+  // on an estimate of "~250 bytes/patch pessimistic". Production disagreed:
+  // every KEV run failed with
+  //   message in batch has length 187596 bytes which exceeds single message limit
+  // i.e. 375 bytes/patch, because CISA's kevRequiredAction is routinely a full
+  // remediation sentence with no upstream length bound. KEV is the
+  // actively-exploited feed, so a failing run means real KEV-listed CVEs go
+  // unflagged.
+
+  const QUEUE_MESSAGE_LIMIT = 131_072;
+
+  function patch(i: number, actionLength: number): KevPatch {
+    return {
+      cveId: `CVE-2026-${String(i).padStart(5, '0')}`,
+      kevDateAdded: Date.UTC(2026, 0, 1),
+      kevDueDate: Date.UTC(2026, 0, 21),
+      kevRequiredAction: 'R'.repeat(actionLength),
+    };
+  }
+
+  function serializedBytes(patches: KevPatch[]): number {
+    return new TextEncoder().encode(JSON.stringify({ patches })).length;
+  }
+
+  it('keeps every message under the 128KB queue limit at realistic patch sizes', () => {
+    // 1,800 patches at ~375 bytes each — the shape that broke production.
+    const patches = Array.from({ length: 1800 }, (_, i) => patch(i, 300));
+    const { messages, oversized } = chunkKevPatches(patches);
+
+    expect(oversized).toHaveLength(0);
+    expect(messages.length).toBeGreaterThan(1); // it genuinely split
+    for (const msg of messages) {
+      expect(serializedBytes(msg)).toBeLessThan(QUEUE_MESSAGE_LIMIT);
+    }
+    // Nothing lost in the split.
+    expect(messages.reduce((n, m) => n + m.length, 0)).toBe(1800);
+  });
+
+  it('splits by bytes, not by count, when required actions are long', () => {
+    // 600 patches x ~2KB of required-action text. A count-based chunk of 500
+    // would be ~1MB in one message.
+    const patches = Array.from({ length: 600 }, (_, i) => patch(i, 2000));
+    const { messages } = chunkKevPatches(patches);
+
+    for (const msg of messages) {
+      expect(serializedBytes(msg)).toBeLessThan(QUEUE_MESSAGE_LIMIT);
+      expect(msg.length).toBeLessThan(500); // byte budget bit before the count cap
+    }
+    expect(messages.reduce((n, m) => n + m.length, 0)).toBe(600);
+  });
+
+  it('still caps by count when patches are tiny', () => {
+    const patches = Array.from({ length: 1200 }, (_, i) => patch(i, 1));
+    const { messages } = chunkKevPatches(patches);
+    for (const msg of messages) {
+      expect(msg.length).toBeLessThanOrEqual(500);
+    }
+    expect(messages.reduce((n, m) => n + m.length, 0)).toBe(1200);
+  });
+
+  it('reports a single un-sendable patch instead of retrying it forever', () => {
+    // Bigger than a whole message on its own: it could never be enqueued, so
+    // it must surface rather than silently stall the catalog.
+    const patches = [patch(1, 200_000), patch(2, 100)];
+    const { messages, oversized } = chunkKevPatches(patches);
+
+    expect(oversized.map((p) => p.cveId)).toEqual(['CVE-2026-00001']);
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.map((p) => p.cveId)).toEqual(['CVE-2026-00002']);
+  });
+
+  it('an empty catalog produces no messages', () => {
+    expect(chunkKevPatches([])).toEqual({ messages: [], oversized: [] });
+  });
 });

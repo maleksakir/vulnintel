@@ -300,7 +300,13 @@ describe('runOsvDiscovery', () => {
     const TOTAL = 200;
     const lines: string[] = [];
     for (let i = 0; i < TOTAL; i++) {
-      const suffix = Math.random().toString(36).slice(2, 6);
+      // Suffix derived from the index, not Math.random(). With a random
+      // 4-char base36 suffix there are ~1.68M possibilities, so 200 draws
+      // collide about 1% of the time (birthday problem); discovery dedupes by
+      // osvId, and the run then yields 199 items and fails the final
+      // assertion. Observed 2026-11-02. Same length, so the byte-size
+      // assertions below keep their meaning.
+      const suffix = i.toString(36).padStart(4, '0');
       lines.push(
         csvLine(`${isoAt(-i * 60 * 1000).slice(0, -1)}123456789Z`, `GHSA-${suffix}-q64q-g65r`),
       );
