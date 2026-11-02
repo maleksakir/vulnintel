@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { Severity } from '@threat-lens/contracts';
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
+  import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -9,14 +9,6 @@
   }
   let { data }: Props = $props();
   const asset = $derived(data.detail);
-
-  const SEV_COLOR: Record<Severity, string> = {
-    CRITICAL: '#ef4444',
-    HIGH: '#f97316',
-    MEDIUM: '#eab308',
-    LOW: '#22c55e',
-    NONE: '#6b7280',
-  };
 
   function isoToDate(iso: string | null) {
     return iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : 'never';
@@ -136,11 +128,9 @@
                 <td class="mono">{c.name}</td>
                 <td class="mono">{c.version ?? '—'}</td>
                 <td>{c.ecosystem ?? '—'}</td>
-                <td><span class:vuln={c.cveCount > 0}>{c.cveCount}</span></td>
-                <td style={c.maxSeverity ? `color:${SEV_COLOR[c.maxSeverity]}` : ''}>
-                  {c.maxSeverity ?? '—'}
-                </td>
-                <td>{c.hasKev ? '⚠ KEV' : '—'}</td>
+                <td><span class="mono" class:vuln={c.cveCount > 0}>{c.cveCount}</span></td>
+                <td><SeverityBadge severity={c.maxSeverity} variant="text" /></td>
+                <td>{#if c.hasKev}<span class="kev-chip">KEV</span>{:else}—{/if}</td>
               </tr>
             {/each}
           </tbody>
@@ -165,10 +155,10 @@
                     <a class="cve-link" href="/cve/{v.cveId}">{v.cveId}</a>
                     {#if v.riskAccepted}<span class="accepted-tag" title="Risk accepted (active)">accepted</span>{/if}
                   </td>
-                  <td style={v.severity ? `color:${SEV_COLOR[v.severity]}` : ''}>{v.severity ?? '—'}</td>
-                  <td>{v.cvssBase !== null ? v.cvssBase.toFixed(1) : '—'}</td>
-                  <td>{v.kevListed ? '⚠ KEV' : '—'}</td>
-                  <td>{v.epssPercentile !== null ? `${(v.epssPercentile * 100).toFixed(1)}th` : '—'}</td>
+                  <td><SeverityBadge severity={v.severity} variant="text" /></td>
+                  <td class="mono">{v.cvssBase !== null ? v.cvssBase.toFixed(1) : '—'}</td>
+                  <td>{#if v.kevListed}<span class="kev-chip">KEV</span>{:else}—{/if}</td>
+                  <td class="mono">{v.epssPercentile !== null ? `${(v.epssPercentile * 100).toFixed(1)}th` : '—'}</td>
                   <td class="mono">{v.componentName}{v.componentVersion ? `@${v.componentVersion}` : ''}</td>
                   <td><span class="via via--{v.matchVia.toLowerCase()}">{v.matchVia}</span></td>
                 </tr>
@@ -260,19 +250,19 @@
     align-self: flex-start;
     padding: var(--space-2) var(--space-4);
     background: transparent;
-    color: #fca5a5;
-    border: 1px solid color-mix(in srgb, #ef4444 40%, transparent);
+    color: var(--color-critical-text);
+    border: 1px solid var(--color-critical-border);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
   }
   .import-ok {
     font-size: var(--text-sm);
-    color: #86efac;
+    color: var(--color-low-text);
     margin: 0;
   }
   .admin-error {
     font-size: var(--text-sm);
-    color: #fca5a5;
+    color: var(--color-critical-text);
     margin: 0;
   }
   .empty-state {
@@ -317,7 +307,7 @@
     text-decoration: underline;
   }
   .vuln {
-    color: #fca5a5;
+    color: var(--color-critical-text);
     font-weight: var(--weight-semibold);
   }
   .via {
@@ -327,8 +317,8 @@
     border-radius: var(--radius-sm);
   }
   .via--purl {
-    background: color-mix(in srgb, #22c55e 16%, transparent);
-    color: #86efac;
+    background: var(--color-low-subtle);
+    color: var(--color-low-text);
   }
   .via--cpe {
     background: var(--color-surface-overlay);

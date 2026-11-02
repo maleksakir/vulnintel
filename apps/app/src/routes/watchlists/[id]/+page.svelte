@@ -1,7 +1,8 @@
 <script lang="ts">
-  import type { Severity, WatchlistMatchCounts, WatchlistMatchStatus } from '@threat-lens/contracts';
+  import type { WatchlistMatchCounts, WatchlistMatchStatus } from '@threat-lens/contracts';
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
+  import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -102,14 +103,6 @@
       window.location.href = '/watchlists';
     });
   }
-
-  const SEV_COLOR: Record<Severity, string> = {
-    CRITICAL: '#ef4444',
-    HIGH: '#f97316',
-    MEDIUM: '#eab308',
-    LOW: '#22c55e',
-    NONE: '#6b7280',
-  };
 
   const STATUS_ORDER: Array<keyof WatchlistMatchCounts> = [
     'NEW',
@@ -303,11 +296,9 @@
                   {/if}
                 </td>
                 <td><a class="cve-link" href="/cve/{m.cveId}">{m.cveId}</a></td>
-                <td style={m.severity ? `color:${SEV_COLOR[m.severity]}` : ''}>
-                  {m.severity ?? '—'}
-                </td>
-                <td>{m.cvssBase !== null ? m.cvssBase.toFixed(1) : '—'}</td>
-                <td>{m.kevListed ? '⚠ KEV' : '—'}</td>
+                <td><SeverityBadge severity={m.severity} variant="text" /></td>
+                <td class="mono">{m.cvssBase !== null ? m.cvssBase.toFixed(1) : '—'}</td>
+                <td>{#if m.kevListed}<span class="kev-chip">KEV</span>{:else}—{/if}</td>
                 <td>{m.epssPercentile !== null ? `${(m.epssPercentile * 100).toFixed(1)}th` : '—'}</td>
                 <td>
                   <select
@@ -531,8 +522,8 @@
   }
   .btn-primary {
     padding: var(--space-2) var(--space-4);
-    background: var(--color-brand-500);
-    color: #fff;
+    background: var(--color-brand-default);
+    color: var(--color-text-on-brand);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
@@ -546,8 +537,8 @@
     align-self: flex-start;
     padding: var(--space-2) var(--space-4);
     background: transparent;
-    color: #fca5a5;
-    border: 1px solid color-mix(in srgb, #ef4444 40%, transparent);
+    color: var(--color-critical-text);
+    border: 1px solid var(--color-critical-border);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
   }
@@ -556,12 +547,12 @@
   }
   .btn-danger-sm {
     padding: 2px var(--space-2);
-    color: #fca5a5;
+    color: var(--color-critical-text);
     font-size: var(--text-xs);
   }
   .admin-error {
     font-size: var(--text-sm);
-    color: #fca5a5;
+    color: var(--color-critical-text);
     margin: 0;
   }
 
@@ -599,7 +590,7 @@
     line-height: 1;
   }
   .sub-remove:hover {
-    color: #fca5a5;
+    color: var(--color-critical-text);
   }
 
   .status-select {
@@ -613,16 +604,16 @@
     cursor: pointer;
   }
   .status-select--new {
-    color: #fca5a5;
+    color: var(--color-critical-text);
   }
   .status-select--triaging {
-    color: #fdba74;
+    color: var(--color-high-text);
   }
   .status-select--acknowledged {
-    color: #fde047;
+    color: var(--color-medium-text);
   }
   .status-select--resolved {
-    color: #86efac;
+    color: var(--color-low-text);
   }
   .status-select--ignored {
     color: var(--color-text-tertiary);
@@ -639,16 +630,19 @@
     cursor: help;
   }
   .prio-badge--critical {
-    background: color-mix(in srgb, #ef4444 22%, transparent);
-    color: #fca5a5;
+    background: var(--color-critical-subtle);
+    color: var(--color-critical-text);
+    border: 1px solid var(--color-critical-border);
   }
   .prio-badge--high {
-    background: color-mix(in srgb, #f97316 20%, transparent);
-    color: #fdba74;
+    background: var(--color-high-subtle);
+    color: var(--color-high-text);
+    border: 1px solid var(--color-high-border);
   }
   .prio-badge--moderate {
-    background: color-mix(in srgb, #eab308 18%, transparent);
-    color: #fde047;
+    background: var(--color-medium-subtle);
+    color: var(--color-medium-text);
+    border: 1px solid var(--color-medium-border);
   }
   .prio-badge--low {
     background: var(--color-surface-overlay);

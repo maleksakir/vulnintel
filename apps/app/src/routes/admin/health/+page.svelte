@@ -8,9 +8,9 @@
   const SOURCES: IngestSource[] = ['NVD', 'MITRE', 'KEV', 'EPSS', 'AGING'];
 
   const STALENESS_COLOR: Record<IngestStaleness, string> = {
-    green: '#22c55e',
-    amber: '#eab308',
-    red: '#ef4444',
+    green: 'var(--color-status-green)',
+    amber: 'var(--color-status-amber)',
+    red: 'var(--color-status-red)',
   };
 
   function isoToDateTime(iso: string | null) {
@@ -204,9 +204,9 @@
   .token-form { display: flex; flex-direction: column; }
   .token-row { display: flex; gap: var(--space-2); }
   .token-input { flex: 1; padding: var(--space-2) var(--space-3); background: var(--color-surface-raised); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text-primary); font-family: var(--font-mono); }
-  .token-input:focus { outline: none; border-color: var(--color-brand-500); }
-  .token-btn { padding: var(--space-2) var(--space-4); background: var(--color-brand-500); color: #fff; border: none; border-radius: var(--radius-md); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
-  .token-btn:hover { background: var(--color-brand-600, #2563eb); }
+  .token-input:focus { outline: none; border-color: var(--color-brand-default); }
+  .token-btn { padding: var(--space-2) var(--space-4); background: var(--color-brand-subtle); color: var(--color-brand-text); border: 1px solid var(--color-brand-border); border-radius: var(--radius-md); font-size: var(--text-sm); cursor: pointer; white-space: nowrap; }
+  .token-btn:hover { border-color: var(--color-brand-default); box-shadow: var(--glow-accent); }
 
   .health-section { margin-block-end: var(--space-8); }
   .section-title { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-4); }
@@ -215,8 +215,8 @@
   .count-card { background: var(--color-surface-raised); border: 1px solid var(--color-border-subtle); border-radius: var(--radius-md); padding: var(--space-4) var(--space-5); min-width: 9rem; }
   .count-label { font-size: var(--text-xs); color: var(--color-text-tertiary); text-transform: uppercase; letter-spacing: var(--tracking-wide); }
   .count-value { font-size: var(--text-2xl); font-weight: var(--weight-bold); color: var(--color-text-primary); margin: var(--space-1) 0 0; }
-  .count-warn { color: #eab308; }
-  .count-error { color: #ef4444; }
+  .count-warn { color: var(--color-status-amber); }
+  .count-error { color: var(--color-status-red); }
 
   .table-wrap { overflow-x: auto; }
   .data-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
@@ -225,12 +225,12 @@
 
   .source-name { font-family: var(--font-mono); font-weight: var(--weight-medium); color: var(--color-text-primary); font-size: var(--text-xs); }
   .mono-cell { font-family: var(--font-mono); font-size: var(--text-xs); }
-  .cell-warn { color: #ef4444; }
+  .cell-warn { color: var(--color-status-red); }
 
   .status-badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: var(--radius-sm); font-size: var(--text-xs); font-weight: var(--weight-medium); text-transform: uppercase; }
-  .status-ok { background: #14532d40; color: #86efac; }
-  .status-partial { background: #78350f40; color: #fde68a; }
-  .status-failed { background: #7f1d1d40; color: #fca5a5; }
+  .status-ok { background: var(--color-status-green-subtle); color: var(--color-status-green); border: 1px solid var(--color-low-border); }
+  .status-partial { background: var(--color-status-amber-subtle); color: var(--color-status-amber); border: 1px solid var(--color-medium-border); }
+  .status-failed { background: var(--color-status-red-subtle); color: var(--color-status-red); border: 1px solid var(--color-critical-border); }
   .status-never { color: var(--color-text-tertiary); font-size: var(--text-xs); }
 
   .staleness-dot { display: inline-block; width: 0.5rem; height: 0.5rem; border-radius: 50%; margin-right: var(--space-1); vertical-align: middle; }

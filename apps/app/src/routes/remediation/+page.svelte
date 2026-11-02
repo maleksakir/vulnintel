@@ -186,7 +186,7 @@
   }
   .admin-error {
     font-size: var(--text-sm);
-    color: #fca5a5;
+    color: var(--color-critical-text);
     margin: var(--space-2) 0 0;
   }
   .empty-state {
@@ -238,8 +238,8 @@
   .btn-revoke {
     padding: 2px var(--space-2);
     font-size: var(--text-xs);
-    color: #fca5a5;
-    border: 1px solid color-mix(in srgb, #ef4444 35%, transparent);
+    color: var(--color-critical-text);
+    border: 1px solid var(--color-critical-border);
     border-radius: var(--radius-sm);
   }
   .btn-revoke:disabled {

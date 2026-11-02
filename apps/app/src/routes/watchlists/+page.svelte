@@ -219,8 +219,8 @@
   }
   .btn-primary {
     padding: var(--space-2) var(--space-4);
-    background: var(--color-brand-500);
-    color: #fff;
+    background: var(--color-brand-default);
+    color: var(--color-text-on-brand);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
@@ -232,7 +232,7 @@
   }
   .admin-error {
     font-size: var(--text-sm);
-    color: #fca5a5;
+    color: var(--color-critical-text);
     margin: 0;
   }
 
@@ -317,20 +317,20 @@
   }
   /* NEW is the attention state; terminal states are muted. */
   .badge--new {
-    background: color-mix(in srgb, #ef4444 20%, transparent);
-    color: #fca5a5;
+    background: var(--color-critical-subtle);
+    color: var(--color-critical-text);
   }
   .badge--triaging {
-    background: color-mix(in srgb, #f97316 20%, transparent);
-    color: #fdba74;
+    background: var(--color-high-subtle);
+    color: var(--color-high-text);
   }
   .badge--acknowledged {
-    background: color-mix(in srgb, #eab308 18%, transparent);
-    color: #fde047;
+    background: var(--color-medium-subtle);
+    color: var(--color-medium-text);
   }
   .badge--resolved {
-    background: color-mix(in srgb, #22c55e 16%, transparent);
-    color: #86efac;
+    background: var(--color-low-subtle);
+    color: var(--color-low-text);
   }
   .badge--ignored {
     background: var(--color-surface-overlay);

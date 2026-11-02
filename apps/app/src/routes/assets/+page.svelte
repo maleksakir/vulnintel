@@ -195,8 +195,8 @@
   }
   .btn-primary {
     padding: var(--space-2) var(--space-4);
-    background: var(--color-brand-500);
-    color: #fff;
+    background: var(--color-brand-default);
+    color: var(--color-text-on-brand);
     border-radius: var(--radius-sm);
     font-size: var(--text-sm);
     font-weight: var(--weight-medium);
@@ -208,7 +208,7 @@
   }
   .admin-error {
     font-size: var(--text-sm);
-    color: #fca5a5;
+    color: var(--color-critical-text);
     margin: 0;
   }
   .empty-state {
@@ -263,7 +263,7 @@
     margin-block-start: 2px;
   }
   .vuln {
-    color: #fca5a5;
+    color: var(--color-critical-text);
     font-weight: var(--weight-semibold);
   }
 </style>

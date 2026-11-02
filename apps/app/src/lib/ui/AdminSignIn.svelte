@@ -56,59 +56,79 @@
 <style>
   .gate {
     max-width: 32rem;
-    margin: 4rem auto;
-    padding: 1.75rem;
-    border: 1px solid var(--border, #2a2f3a);
-    border-radius: 0.75rem;
-    background: var(--surface, #151821);
+    margin: var(--space-16) auto;
+    padding: var(--space-7);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(120% 140% at 0% 0%, var(--color-brand-subtle) 0%, transparent 45%),
+      var(--color-surface-raised);
   }
   .gate__title {
-    margin: 0 0 0.5rem;
-    font-size: 1.25rem;
+    margin: 0 0 var(--space-2);
+    font-size: var(--text-xl);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    letter-spacing: var(--tracking-tight);
   }
   .gate__body {
-    margin: 0 0 1.25rem;
-    color: var(--text-muted, #9aa3b2);
-    font-size: 0.9rem;
-    line-height: 1.5;
+    margin: 0 0 var(--space-5);
+    color: var(--color-text-secondary);
+    font-size: var(--text-sm);
+    line-height: var(--leading-normal);
   }
   .gate__form {
     display: flex;
-    gap: 0.75rem;
+    gap: var(--space-3);
     align-items: flex-end;
     flex-wrap: wrap;
   }
   .gate__field {
     display: flex;
     flex-direction: column;
-    gap: 0.35rem;
+    gap: var(--space-1_5);
     flex: 1 1 16rem;
   }
   .gate__label {
-    font-size: 0.75rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
     text-transform: uppercase;
-    letter-spacing: 0.04em;
-    color: var(--text-muted, #9aa3b2);
+    letter-spacing: var(--tracking-wide);
+    color: var(--color-text-tertiary);
   }
   .gate__input {
-    padding: 0.5rem 0.65rem;
-    border: 1px solid var(--border, #2a2f3a);
-    border-radius: 0.4rem;
-    background: var(--bg, #0e1016);
-    color: inherit;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-md);
+    background: var(--color-surface-sunken);
+    color: var(--color-text-primary);
     font: inherit;
+    font-family: var(--font-mono);
+    outline: none;
+    transition: var(--transition-colors), box-shadow var(--duration-fast) var(--ease-out);
+  }
+  .gate__input:focus {
+    border-color: var(--color-brand-default);
+    box-shadow: var(--glow-accent);
   }
   .gate__submit {
-    padding: 0.55rem 1.1rem;
-    border: 0;
-    border-radius: 0.4rem;
-    background: var(--accent, #3b82f6);
-    color: #fff;
+    padding: var(--space-2) var(--space-5);
+    border: 1px solid var(--color-brand-border);
+    border-radius: var(--radius-md);
+    background: var(--color-brand-subtle);
+    color: var(--color-brand-text);
     font: inherit;
+    font-family: var(--font-mono);
+    font-weight: var(--weight-medium);
     cursor: pointer;
+    transition: var(--transition-colors), box-shadow var(--duration-fast) var(--ease-out);
+  }
+  .gate__submit:hover:not(:disabled) {
+    border-color: var(--color-brand-default);
+    box-shadow: var(--glow-accent);
   }
   .gate__submit:disabled {
-    opacity: 0.5;
+    opacity: 0.45;
     cursor: not-allowed;
   }
 </style>
