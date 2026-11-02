@@ -1,5 +1,6 @@
 import { adminPageGate } from '$lib/server/adminSession';
 import { getWatchlists } from '$lib/server/queries/getWatchlists';
+import { readOrEmpty } from '$lib/server/tableGuard';
 import type { PageServerLoad } from './$types';
 
 // Watchlists list — operator-only: the set of vendors/products we monitor
@@ -17,6 +18,7 @@ export const load: PageServerLoad = async ({ url, platform, cookies }) => {
 
   const db = env?.DB;
   if (!db) return { authed: true, watchlists: [] };
-  const data = await getWatchlists(db);
-  return { authed: true, watchlists: data.watchlists };
+  // watchlist* tables are added by migration 0009 (see tableGuard.ts).
+  const { data, schemaReady } = await readOrEmpty(() => getWatchlists(db), { watchlists: [] });
+  return { authed: true, watchlists: data.watchlists, schemaReady };
 };

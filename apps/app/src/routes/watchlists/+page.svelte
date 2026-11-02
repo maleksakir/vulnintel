@@ -3,6 +3,7 @@
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
   import AdminSignIn from '$lib/ui/AdminSignIn.svelte';
+  import SchemaPendingNotice from '$lib/ui/SchemaPendingNotice.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -76,6 +77,10 @@
     Track the CVEs affecting the vendors and products you care about, with a per-CVE triage
     pipeline — instead of re-running the same filtered search every day.
   </p>
+
+  {#if data.schemaReady === false}
+    <SchemaPendingNotice feature="Watchlists" />
+  {/if}
 
   <details class="admin-panel">
     <summary>Admin actions</summary>

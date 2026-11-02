@@ -10,6 +10,7 @@ import {
   invalidateAssetsList,
 } from '$lib/server/queries/getAssets';
 import { checkRateLimit } from '$lib/server/quota';
+import { readOrEmpty } from '$lib/server/tableGuard';
 import { validateCreateAsset } from '$lib/server/validate/index';
 import type { RequestHandler } from './$types';
 
@@ -30,11 +31,14 @@ export const GET: RequestHandler = async ({ request, platform, cookies, locals }
       { retryAfterSeconds: 60 },
     );
   }
-  const data = env.CACHE
-    ? await cacheReadJson(env.CACHE, ASSETS_LIST_CACHE_KEY, ASSETS_LIST_TTL, () =>
-        getAssets(env.DB),
-      )
-    : await getAssets(env.DB);
+  // Asset tables are added by migration 0011 (see tableGuard.ts).
+  const { data } = await readOrEmpty(
+    () =>
+      env.CACHE
+        ? cacheReadJson(env.CACHE, ASSETS_LIST_CACHE_KEY, ASSETS_LIST_TTL, () => getAssets(env.DB))
+        : getAssets(env.DB),
+    { assets: [] },
+  );
   return new Response(JSON.stringify(data), {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });

@@ -2,6 +2,7 @@
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
   import AdminSignIn from '$lib/ui/AdminSignIn.svelte';
+  import SchemaPendingNotice from '$lib/ui/SchemaPendingNotice.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -60,6 +61,10 @@
     Import a CycloneDX SBOM per application; its components are matched to known CVEs
     (package-URL first, falling back to vendor/product) so you can see what's affected.
   </p>
+
+  {#if data.schemaReady === false}
+    <SchemaPendingNotice feature="Asset inventory" />
+  {/if}
 
   <details class="admin-panel">
     <summary>Admin actions</summary>

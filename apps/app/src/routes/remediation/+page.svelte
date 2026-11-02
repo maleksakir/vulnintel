@@ -2,6 +2,7 @@
   import { invalidateAll } from '$app/navigation';
   import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
   import AdminSignIn from '$lib/ui/AdminSignIn.svelte';
+  import SchemaPendingNotice from '$lib/ui/SchemaPendingNotice.svelte';
   import type { PageData } from './$types';
 
   interface Props {
@@ -58,6 +59,10 @@
     auto-reactivates (the CVE becomes actionable again) the moment it expires. Accept or extend an
     acceptance from a CVE's detail page.
   </p>
+
+  {#if data.schemaReady === false}
+    <SchemaPendingNotice feature="Remediation" />
+  {/if}
 
   <details class="admin-panel">
     <summary>Admin token</summary>

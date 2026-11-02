@@ -4,6 +4,7 @@ import { errorResponse } from '$lib/server/errorResponse';
 import { getWatchlists } from '$lib/server/queries/getWatchlists';
 import { createWatchlist } from '$lib/server/queries/watchlistMutations';
 import { checkRateLimit } from '$lib/server/quota';
+import { readOrEmpty } from '$lib/server/tableGuard';
 import { validateCreateWatchlist } from '$lib/server/validate/index';
 import type { RequestHandler } from './$types';
 
@@ -32,7 +33,8 @@ export const GET: RequestHandler = async ({ request, platform, cookies, locals }
     );
   }
 
-  const data = await getWatchlists(env.DB);
+  // watchlist* tables are added by migration 0009 (see tableGuard.ts).
+  const { data } = await readOrEmpty(() => getWatchlists(env.DB), { watchlists: [] });
   return new Response(JSON.stringify(data), {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });

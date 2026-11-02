@@ -2,6 +2,7 @@ import { isAdminRequest } from '$lib/server/adminSession';
 import { errorResponse } from '$lib/server/errorResponse';
 import { getRiskAcceptances } from '$lib/server/queries/remediation';
 import { checkRateLimit } from '$lib/server/quota';
+import { readOrEmpty } from '$lib/server/tableGuard';
 import type { RequestHandler } from './$types';
 
 // GET /api/remediation — all risk acceptances (active + recently expired).
@@ -25,7 +26,9 @@ export const GET: RequestHandler = async ({ request, platform, cookies, locals }
       { retryAfterSeconds: 60 },
     );
   }
-  const data = await getRiskAcceptances(env.DB);
+  // cve_risk_acceptance is added by migration 0012; tolerate it being absent
+  // (see tableGuard.ts) rather than 500 on a live API.
+  const { data } = await readOrEmpty(() => getRiskAcceptances(env.DB), { acceptances: [] });
   return new Response(JSON.stringify(data), {
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   });

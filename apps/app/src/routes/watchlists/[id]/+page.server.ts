@@ -1,7 +1,8 @@
-import { error } from '@sveltejs/kit';
+import { error, redirect } from '@sveltejs/kit';
 import type { WatchlistMatchStatus } from '@threat-lens/contracts';
 import { requireAdminPage } from '$lib/server/adminSession';
 import { getWatchlistDetail } from '$lib/server/queries/getWatchlists';
+import { readOrEmpty } from '$lib/server/tableGuard';
 import type { PageServerLoad } from './$types';
 
 const VALID_STATUSES: ReadonlySet<string> = new Set([
@@ -32,11 +33,17 @@ export const load: PageServerLoad = async ({ params, url, platform, cookies }) =
       : undefined;
   const cursor = url.searchParams.get('cursor') ?? undefined;
 
-  const detail = await getWatchlistDetail(db, watchlistId, {
-    ...(status !== undefined && { status }),
-    ...(cursor !== undefined && { cursor }),
-  });
+  // watchlist* tables are added by migration 0009 (see tableGuard.ts).
+  const { data: detail, schemaReady } = await readOrEmpty(
+    () =>
+      getWatchlistDetail(db, watchlistId, {
+        ...(status !== undefined && { status }),
+        ...(cursor !== undefined && { cursor }),
+      }),
+    null,
+  );
 
+  if (!schemaReady) redirect(303, '/watchlists');
   if (!detail) {
     error(404, { message: `Watchlist ${watchlistId} was not found.`, code: 'WATCHLIST_NOT_FOUND' });
   }
