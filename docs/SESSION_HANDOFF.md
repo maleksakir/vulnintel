@@ -1,72 +1,72 @@
-# Autonomous Session Handoff (while you were resting)
+# Session Handoff — Production is LIVE
 
-Everything below is **committed, CI-green, and live on STAGING**. Nothing has
-been deployed to production and no production D1 migration has been applied —
-per your instruction to batch the end-to-end production deploy for when you're
-back. All work stayed within the Cloudflare free tier (zero new paid
-resources; no AI features that could drain the shared neuron pool were shipped
-unattended — see "Deliberately deferred" below).
+Both workers are deployed to production and serving. Everything below is
+committed, CI-green (app 125 tests, ingest 212, all green; `tsc`,
+`svelte-check`, `biome ci` clean), pushed to `github/main`, and running on the
+Cloudflare free tier (zero paid resources).
 
-## What shipped this session (newest first)
+Live: https://threat-lens-app.sakirm.workers.dev/
 
-| Commit | Feature |
+## Deployed versions
+
+| Worker | Version ID | Carries |
+|---|---|---|
+| threat-lens-ingest | `c29c95f2-5be3-4dc7-9c90-d696b42f9b57` | KEV message-size fix, EPSS write-amplification fix, FTS trigger fix (0013), dashboard rollups (0014), aging-sweep budget restructure |
+| threat-lens-app | `713e3f97-ad0c-4511-b801-051588e812b7` | operator read-gate on assets/watchlists/remediation, rollup-backed dashboard read path with base-table fallback, all 13 security-review fixes |
+
+## Commits this session (newest first)
+
+| Commit | What |
 |---|---|
-| `69da2bb` | Remediation wiring: risk-accepted flag on asset CVEs, `/cve/[id]` accept/revoke panel, `/remediation` overview page |
-| `fe2de79` | Remediation: risk acceptance (mandatory expiry, auto-reactivation) — migration 0012 |
-| `5beb9a3` | Asset inventory + SBOM import (CycloneDX, PURL/CPE matching) — migration 0011 |
-| `652971d` | Watchlist deterministic priority score (zero AI) |
-| `e04e681`…`aa23459` | Watchlists complete (schema/engine/API/UI/notifications) — migrations 0009, 0010 |
-| earlier | KEV+reconcile queue fix, SSR caching, dashboard cache-key fix, per-IP AI quota cap |
+| `3b2f363` | app: dashboard renders even when rollup tables are absent (not just empty) |
+| `e63a3fa` | ingest: fix the 3 live pipeline failures (KEV byte-size, EPSS over-write + FK poisoning, aging CPU) |
+| `daa85ca` | perf(d1): FTS trigger fix + day-grain rollups — the read-quota blowout |
+| `2f0dda9` | security review: webhooks, reconcile cursor, orphan sweeps, write quotas |
+| `8508405` | security: gate the operator read surface; make SBOM matching work and bounded |
 
-Test totals now: **apps/app 102, apps/ingest 177** — all green; `tsc`,
-`svelte-check`, and `biome ci` all clean.
+## ⚠ ONE THING LEFT: apply production migrations 0008 + 0014
 
-## TO DO WHEN YOU'RE BACK — batched production deploy
+Blocked today (2026-11-02) by D1's free-tier **daily write cap**, which was
+exhausted before 05:00 UTC by the EPSS over-write bug — a bug this session
+fixed, but the fix deployed *after* the day's budget was already spent, so the
+cap won't clear until **00:00 UTC** (~17h from the 06:19 UTC handoff).
 
-Two things, in this order:
+A hook (`.kiro/hooks/apply-prod-migrations.json`) is set to apply them at the
+next session start; or run it by hand once the cap resets:
 
-### 1. Apply the pending production D1 migrations (0009–0012)
-All four are additive, validated on staging (each with a leftover-table
-pre-flight check), and idempotent. From `apps/ingest`:
 ```
+cd apps/ingest
 pnpm exec wrangler d1 migrations apply cve_prod_d1 --remote
 ```
-Note: production D1 was already cleaned of the ~53 lost-implementation tables
-on 2026-10-30, so unlike staging it should have NO leftover
-watchlist/asset/remediation tables to drop first — but do a quick
-`sqlite_master` check for `watchlist%`, `asset%`, `sbom%`, `remediation%`,
-`cve_risk_acceptance` before applying, just in case (same cheap control-plane
-read used throughout this project).
 
-### 2. Approve the pending production deploys
-Several Deploy runs are queued at the GitHub "production" Environment's
-required-reviewer gate (the deploy identity I have can't self-approve — 403).
-Approve the latest at the Actions UI; it deploys both workers. The new
-Cloudflare Queues for watchlists (`watchlist-ingest` + DLQ + staging pair)
-were already provisioned this session; no new queues are needed for the asset
-/remediation work (they're pure app-worker + D1).
+0008 adds the four SSVC columns `writeD1` binds; 0009–0012 add
+watchlists/assets/remediation; **0014 builds the dashboard rollup tables**.
 
-After deploy, watchlists/assets/remediation become live in production. A
-first watchlist/asset will populate on the next daily ingest cron (watchlist
-reconciliation) or immediately on an SBOM import (assets) / subscription add
-(watchlists — has an inline backfill).
+Why this is NOT currently breaking production:
+- **getMetrics** degrades to the base-table queries on a missing rollup table
+  (commit `3b2f363`, test-covered), so the dashboard renders correct numbers,
+  just without the read-cost reduction, until 0014 lands.
+- **The read-quota relief is already live** regardless of migrations: the FTS
+  trigger that was burning 11.3M reads/day ships in the *worker* (migration
+  0013 only re-points the trigger; the EPSS write fix is pure worker code).
+  So ingestion can complete again starting with tonight's cron.
 
-## Deliberately deferred (need you / a supervised session)
+What 0014 unlocks once applied: the first aging sweep after it (cron `30 2 * *
+*`) builds the rollups, and the dashboard switches from base-table scans to
+~540-row rollup reads.
 
-- **AI prioritization rationale** (natural-language): draws on the shared
-  10k-neuron/day pool ingest embeddings depend on. The deterministic priority
-  score shipped; the AI layer needs a budget gate built while the neuron
-  budget can be watched — not safe to run unattended.
-- **Cross-source conflicts** (CVSS/CWE): the NVD adapter collapses to one
-  CVSS today, so the multi-source data isn't captured. Needs an ingest schema
-  change + backfill + a live cron cycle to verify.
-- **Live push (SSE)**: wants Durable Objects for fan-out — verify its
-  free-tier profile first; realtime is hard to verify offline.
-- **Durable Objects rate limiter**, **API keys**: flagged earlier as
-  pause-and-decide (billing / security-surface decisions).
+## Verified live this session
 
-## Still open from before (unchanged)
-- `AGING` cron recorded zero invocations Aug 27–Oct 30 (platform mystery, not
-  a code bug) — watch `ingest_run.AGING` after a `30 2 * * *` window.
-- Live confirmation that NVD/MITRE/OSV/KEV ingestion is landing rows in
-  production (needs a daily cron cycle + a cheap spot-check).
+- `/` 200, `/search?q=linux` 200, `/threat-intel` 200, `/affected-products` 200
+- `/assets`, `/remediation`, `/watchlists` → sign-in gate renders, **no data
+  leaked** (no table, no import panel) for an unauthenticated visitor
+- `/api/remediation` → 403 without a bearer token
+- homepage served with no 500 against the un-migrated schema (fallback works)
+
+## Still open (pre-existing, not blocking)
+
+- `IPLIST_PRUNE` failing since 2026-10-08 (Rulesets API 403) — separate credential issue
+- Production ingestion backlog: NVD last wrote 2026-10-30; tonight's crons
+  should now land rows (the three pipeline failures that prevented it are fixed)
+- Deferred by design: cross-source CVSS conflicts, SSE live-push, AI
+  prioritization rationale (see docs/EXECUTION_PLAN.md)
