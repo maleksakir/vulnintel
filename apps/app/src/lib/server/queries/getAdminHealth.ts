@@ -12,9 +12,6 @@ interface IngestRow {
 }
 
 interface CountsRow {
-  cve: number;
-  cpe: number;
-  cve_state: number;
   cve_quarantine: number;
   audit_log: number;
 }
@@ -34,7 +31,7 @@ export async function getAdminHealth(
   const now = Date.now();
   const oneDayAgo = now - 86_400_000;
 
-  const [ingestRows, countsRow, rateLimitRows] = await Promise.all([
+  const [ingestRows, countsRow, snapshotRows, rateLimitRows] = await Promise.all([
     db
       .prepare(
         `SELECT source, last_started_at, last_finished_at, last_status,
@@ -44,16 +41,33 @@ export async function getAdminHealth(
       )
       .all<IngestRow>(),
 
+    // Only the two SMALL operational tables are counted live. The big three
+    // (cve, cpe, cve_state) come from the aging sweep's daily snapshot below.
+    //
+    // This query used to count all five, which measured 504,759 rows read PER
+    // LOAD on production — ~1.1M rows/day against a 5M/day free-tier cap, for
+    // five display numbers on the page you open precisely WHEN something is
+    // already wrong, and therefore refresh repeatedly. An unfiltered COUNT(*)
+    // is a full table scan in SQLite; there is no shortcut for it.
     db
       .prepare(
         `SELECT
-         (SELECT COUNT(*) FROM cve)              AS cve,
-         (SELECT COUNT(*) FROM cpe)              AS cpe,
-         (SELECT COUNT(*) FROM cve_state)        AS cve_state,
          (SELECT COUNT(*) FROM cve_quarantine)   AS cve_quarantine,
          (SELECT COUNT(*) FROM audit_log)        AS audit_log`,
       )
       .first<CountsRow>(),
+
+    // Row counts for cve/cpe/cve_state as of the last aging sweep. Day-old at
+    // worst, and the corpus only changes when ingest runs — but if the sweep
+    // itself is broken these go stale, which is exactly what the AGING
+    // staleness indicator on this same page is for.
+    db
+      .prepare(
+        `SELECT metric_key, value FROM cve_metrics_daily
+         WHERE metric_date = (SELECT MAX(metric_date) FROM cve_metrics_daily)
+           AND metric_key IN ('total_cves','cpe_rows','cve_state_rows')`,
+      )
+      .all<{ metric_key: string; value: number }>(),
 
     db
       .prepare(
@@ -67,6 +81,8 @@ export async function getAdminHealth(
       .bind(oneDayAgo)
       .all<RateLimitRow>(),
   ]);
+
+  const snapshot = new Map(snapshotRows.results.map((r) => [r.metric_key, r.value]));
 
   // Build ingest status map
   const ingestMap = new Map<string, IngestRow>();
@@ -105,9 +121,9 @@ export async function getAdminHealth(
     generatedAt: new Date(now).toISOString(),
     ingest,
     counts: {
-      cve: countsRow?.cve ?? 0,
-      cpe: countsRow?.cpe ?? 0,
-      cveState: countsRow?.cve_state ?? 0,
+      cve: snapshot.get('total_cves') ?? 0,
+      cpe: snapshot.get('cpe_rows') ?? 0,
+      cveState: snapshot.get('cve_state_rows') ?? 0,
       cveQuarantine: countsRow?.cve_quarantine ?? 0,
       auditLog: countsRow?.audit_log ?? 0,
     },
