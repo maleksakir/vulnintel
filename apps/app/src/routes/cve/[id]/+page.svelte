@@ -310,7 +310,10 @@
 </script>
 
 <style>
-  .page-cve { max-width: 56rem; }
+  /* Centred reading column — the shell caps at 82rem, so without this the
+     56rem detail column sat flush-left with a large empty right gutter on
+     wide monitors. */
+  .page-cve { max-width: 60rem; margin-inline: auto; }
   .cve-header { margin-block-end: var(--space-8); }
   .cve-header-top { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-block-end: var(--space-2); }
   .cve-id { font-size: var(--text-3xl); font-weight: var(--weight-bold); color: var(--color-text-primary); margin: 0; font-family: var(--font-mono); letter-spacing: var(--tracking-tight); }
@@ -411,7 +414,7 @@
 
   .cve-section { margin-block-end: var(--space-8); }
   .section-title { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-4); }
-  .cve-description { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-secondary); margin: 0; }
+  .cve-description { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--color-text-secondary); margin: 0; }
 
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--layout-card-gap); margin-block-end: var(--space-8); }
   .metric-grid { display: grid; grid-template-columns: 8rem 1fr; gap: var(--space-1) var(--space-4); font-size: var(--text-sm); margin: 0; }
@@ -441,9 +444,10 @@
   .ref-url:hover { color: var(--color-brand-hover); }
   .ref-tag { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-tertiary); background: var(--color-surface-elevated); padding: 0.125rem 0.375rem; border-radius: var(--radius-sm); flex-shrink: 0; text-transform: uppercase; letter-spacing: var(--tracking-wide); }
 
-  /* CISA SSVC decision panel */
+  /* CISA SSVC decision panel. Heading matches .section-title exactly so every
+     section header on the page shares one style + bottom margin. */
   .ssvc { margin-block-end: var(--space-8); }
-  .ssvc__heading { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-3); }
+  .ssvc__heading { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-4); }
   .ssvc__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
   .ssvc__point { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-surface-raised); }
   .ssvc__label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); }

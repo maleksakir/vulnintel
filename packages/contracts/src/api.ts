@@ -147,9 +147,24 @@ export interface SearchResultItem {
   snippet: string; // FTS5-highlighted or first 200 chars of description
 }
 
+/** How the AI understood a natural-language query (shown to the user so the
+ *  interpretation is transparent and correctable). Null when NL parsing didn't
+ *  run (bare keyword, CVE id, budget exhausted, or it failed). */
+export interface SearchInterpretation {
+  /** The cleaned semantic query the engine actually searched. */
+  query: string;
+  severity: Severity[];
+  vendor: string[];
+  kev: boolean;
+  minCvss: number | null;
+  publishedSince: string | null;
+}
+
 export interface SearchResponse {
   results: SearchResultItem[];
   truncated: boolean; // true when more than `limit` candidates were available
+  /** Present only when a natural-language query was AI-parsed into filters. */
+  interpretation?: SearchInterpretation;
 }
 
 // ── GET /api/affected-products  (Section 5.2.4) ──────────────────────────────
@@ -187,6 +202,32 @@ export interface AffectedProductRow {
 export interface AffectedProductsResponse {
   rows: AffectedProductRow[];
   nextCursor: string | null;
+}
+
+/** One affected version (or version range) of a specific vendor/product, for
+ *  the drill-down view. `version` is the discrete CPE version when present;
+ *  `rangeSummary` is the reconstructed bound (">=1.0 <1.4.2") for range-only
+ *  CPEs. Exactly one of the two is the primary identity of the row. */
+export interface AffectedVersionRow {
+  /** Discrete version string, or null for a range-only entry. */
+  version: string | null;
+  /** Human range summary from the four version_start/end bounds, or null. */
+  rangeSummary: string | null;
+  /** CPE part (a=application, o=os, h=hardware), or null. */
+  part: 'a' | 'o' | 'h' | null;
+  cveCount: number;
+  kevCount: number;
+  maxCvssBase: number | null;
+  maxSeverity: Severity | null;
+  /** A few representative CVE ids affecting this version (most recent first). */
+  sampleCveIds: string[];
+}
+
+/** GET /api/affected-products/versions?vendor=&product= — version drill-down. */
+export interface AffectedVersionsResponse {
+  vendor: string;
+  product: string;
+  versions: AffectedVersionRow[];
 }
 
 // ── GET /api/threat-intel/kev  (Section 5.2.5) ───────────────────────────────

@@ -56,6 +56,52 @@
     {/if}
   </form>
 
+  {#if data.versions && data.versions.versions.length > 0}
+    <!-- Version drill-down: vendor → product → version. Shown when a specific
+         vendor + product are selected. -->
+    <section class="versions" aria-label="Affected versions">
+      <h2 class="versions__title">
+        Affected versions of <span class="vp">{data.versions.vendor} / {data.versions.product}</span>
+      </h2>
+      <div class="data-grid__wrap">
+        <table class="data-grid">
+          <thead>
+            <tr>
+              <th>Version / range</th>
+              <th>Type</th>
+              <th>CVEs</th>
+              <th>KEV</th>
+              <th>Max CVSS</th>
+              <th>Severity</th>
+              <th>Sample CVEs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each data.versions.versions as v (v.version ?? v.rangeSummary ?? 'any')}
+              <tr>
+                <td class="mono">
+                  {#if v.version}{v.version}{:else if v.rangeSummary}{v.rangeSummary}{:else}<span class="dim">all versions</span>{/if}
+                </td>
+                <td>
+                  <span class="part-chip">{v.part === 'a' ? 'app' : v.part === 'o' ? 'os' : v.part === 'h' ? 'hw' : '—'}</span>
+                </td>
+                <td class="mono">{v.cveCount.toLocaleString()}</td>
+                <td>{#if v.kevCount > 0}<span class="kev-chip">{v.kevCount}</span>{:else}<span class="dim">—</span>{/if}</td>
+                <td class="mono">{v.maxCvssBase !== null ? v.maxCvssBase.toFixed(1) : '—'}</td>
+                <td><SeverityBadge severity={v.maxSeverity} variant="text" /></td>
+                <td class="samples">
+                  {#each v.sampleCveIds as id (id)}
+                    <a class="cve-link" href="/cve/{id}">{id}</a>
+                  {/each}
+                </td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {/if}
+
   {#if data.dataError}
     <DataOfflineNotice what="Product exposure data" />
   {:else if data.rows.length === 0}
@@ -183,4 +229,29 @@
     border-radius: var(--radius-sm);
   }
   .dim { color: var(--color-text-tertiary); }
+
+  /* Version drill-down */
+  .versions {
+    margin-block-end: var(--space-8);
+    padding: var(--space-5);
+    border: 1px solid var(--color-brand-border);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(120% 140% at 0% 0%, var(--color-brand-subtle) 0%, transparent 55%),
+      var(--color-surface-raised);
+  }
+  .versions__title {
+    font-size: var(--text-sm);
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-primary);
+    margin: 0 0 var(--space-4);
+  }
+  .versions__title .vp { font-family: var(--font-mono); color: var(--color-brand-text); }
+  .part-chip {
+    font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
+    letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary);
+    background: var(--color-surface-elevated); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm);
+  }
+  .samples { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .samples .cve-link { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-brand-text); }
 </style>

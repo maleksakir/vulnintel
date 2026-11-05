@@ -96,19 +96,23 @@ h6 {
   --hue-success: 145;
   --hue-neutral: 220;
 
-  /* ── Surfaces (light) */
-  --color-surface-base:    hsl(220, 20%, 98%);
-  --color-surface-raised:  hsl(220, 18%, 96%);
-  --color-surface-overlay: hsl(220, 16%, 93%);
-  --color-surface-sunken:  hsl(220, 20%, 91%);
-  --color-surface-invert:  hsl(222, 25%, 10%);
+  /* ── Surfaces (light) — wider lightness steps so cards/wells/hovers are
+     clearly distinct (the old 98/96/93/91 stack was only 2% apart and read
+     muddy). base is pure-white page ground; raised/overlay/sunken step down
+     with a cool cast so the stack has depth. */
+  --color-surface-base:    hsl(210, 36%, 99%);
+  --color-surface-raised:  hsl(214, 32%, 97%);
+  --color-surface-overlay: hsl(214, 28%, 93%);
+  --color-surface-sunken:  hsl(214, 30%, 89%);
+  --color-surface-invert:  hsl(216, 28%, 11%);
 
-  /* ── Text (light) */
-  --color-text-primary:   hsl(222, 22%,  8%);
-  --color-text-secondary: hsl(222, 14%, 35%);
-  --color-text-tertiary:  hsl(222, 10%, 55%);
-  --color-text-disabled:  hsl(222,  8%, 72%);
-  --color-text-invert:    hsl(220, 18%, 96%);
+  /* ── Text (light) — tertiary darkened to clear 4.5:1 on raised surfaces
+     (was hsl 55% ≈ 4.0:1, borderline for the many label/section-title uses). */
+  --color-text-primary:   hsl(216, 30%, 10%);
+  --color-text-secondary: hsl(216, 16%, 32%);
+  --color-text-tertiary:  hsl(216, 12%, 46%);
+  --color-text-disabled:  hsl(216,  8%, 66%);
+  --color-text-invert:    hsl(214, 32%, 97%);
   --color-text-on-accent: hsl(  0,  0%, 100%);
 
   /* ── Brand / Primary (light) */
@@ -119,33 +123,35 @@ h6 {
   --color-brand-border:  hsl(215, 60%, 80%);
   --color-brand-text:    hsl(215, 80%, 36%);
 
-  /* ── Severity — CRITICAL (light) */
-  --color-critical:        hsl(  5, 80%, 50%);
-  --color-critical-hover:  hsl(  5, 80%, 42%);
-  --color-critical-subtle: hsl(  5, 80%, 96%);
-  --color-critical-border: hsl(  5, 60%, 80%);
-  --color-critical-text:   hsl(  5, 80%, 36%);
+  /* ── Severity — CRITICAL (light). Subtle fills deepened to ~92% and borders
+     strengthened so each severity badge is distinguishable at a glance (the
+     old 96% fills were all near-white and relied solely on text colour). */
+  --color-critical:        hsl(  2, 78%, 51%);
+  --color-critical-hover:  hsl(  2, 78%, 43%);
+  --color-critical-subtle: hsl(  2, 82%, 93%);
+  --color-critical-border: hsl(  2, 68%, 78%);
+  --color-critical-text:   hsl(  2, 72%, 40%);
 
   /* ── Severity — HIGH (light) */
-  --color-high:        hsl( 22, 85%, 50%);
-  --color-high-hover:  hsl( 22, 85%, 42%);
-  --color-high-subtle: hsl( 22, 85%, 96%);
-  --color-high-border: hsl( 22, 65%, 78%);
-  --color-high-text:   hsl( 22, 80%, 34%);
+  --color-high:        hsl( 26, 90%, 48%);
+  --color-high-hover:  hsl( 26, 90%, 40%);
+  --color-high-subtle: hsl( 26, 90%, 93%);
+  --color-high-border: hsl( 26, 74%, 76%);
+  --color-high-text:   hsl( 26, 86%, 36%);
 
   /* ── Severity — MEDIUM (light) */
-  --color-medium:        hsl( 38, 88%, 44%);
-  --color-medium-hover:  hsl( 38, 88%, 37%);
-  --color-medium-subtle: hsl( 38, 88%, 96%);
-  --color-medium-border: hsl( 38, 70%, 76%);
-  --color-medium-text:   hsl( 38, 80%, 30%);
+  --color-medium:        hsl( 40, 92%, 46%);
+  --color-medium-hover:  hsl( 40, 92%, 38%);
+  --color-medium-subtle: hsl( 42, 92%, 90%);
+  --color-medium-border: hsl( 40, 80%, 72%);
+  --color-medium-text:   hsl( 36, 90%, 32%);
 
   /* ── Severity — LOW (light) */
-  --color-low:        hsl(145, 55%, 38%);
-  --color-low-hover:  hsl(145, 55%, 31%);
-  --color-low-subtle: hsl(145, 55%, 95%);
-  --color-low-border: hsl(145, 40%, 75%);
-  --color-low-text:   hsl(145, 55%, 28%);
+  --color-low:        hsl(150, 58%, 36%);
+  --color-low-hover:  hsl(150, 58%, 29%);
+  --color-low-subtle: hsl(150, 54%, 92%);
+  --color-low-border: hsl(150, 44%, 72%);
+  --color-low-text:   hsl(150, 60%, 26%);
 
   /* ── Severity — NONE (light) */
   --color-none:        hsl(220, 10%, 58%);
@@ -162,14 +168,16 @@ h6 {
   --color-status-red-subtle:   hsl(  5, 80%, 96%);
 
   /* ── Threat-intelligence highlights (light) */
-  /* KEV (Known Exploited) — red family to signal active danger */
-  --color-kev:        hsl(  5, 80%, 50%);
-  --color-kev-subtle: hsl(  5, 80%, 96%);
-  --color-kev-text:   hsl(  5, 80%, 36%);
+  /* KEV (Known Exploited) — ROSE/magenta, deliberately distinct from the
+     CRITICAL red so "actively exploited" reads as its own signal, not just
+     "another critical". */
+  --color-kev:        hsl(330, 78%, 48%);
+  --color-kev-subtle: hsl(330, 78%, 94%);
+  --color-kev-text:   hsl(330, 80%, 38%);
   /* EPSS (Exploit Prediction) — violet to distinguish from KEV */
-  --color-epss:        hsl(280, 60%, 50%);
-  --color-epss-subtle: hsl(280, 60%, 96%);
-  --color-epss-text:   hsl(280, 60%, 36%);
+  --color-epss:        hsl(265, 70%, 52%);
+  --color-epss-subtle: hsl(265, 65%, 95%);
+  --color-epss-text:   hsl(265, 70%, 40%);
 
   /* ── Borders (light) */
   --color-border-default: hsl(220, 14%, 88%);
@@ -301,10 +309,12 @@ h6 {
   --color-status-red-subtle:   hsl(353, 70%, 11%);
 
   /* ── Threat-intelligence highlights (dark) */
-  /* KEV — hot red, active-exploitation danger */
-  --color-kev:        hsl(353, 92%, 60%);
-  --color-kev-subtle: hsl(353, 70%, 11%);
-  --color-kev-text:   hsl(353, 92%, 72%);
+  /* KEV — hot ROSE/magenta, active-exploitation danger. Distinct from the
+     CRITICAL red (353 vs 330 + higher saturation) so a KEV chip reads as its
+     own "exploited in the wild" signal, not another critical badge. */
+  --color-kev:        hsl(330, 90%, 62%);
+  --color-kev-subtle: hsl(330, 60%, 13%);
+  --color-kev-text:   hsl(330, 92%, 74%);
   /* EPSS — violet, deliberately far from cyan AND red on the wheel */
   --color-epss:        hsl(270, 85%, 70%);
   --color-epss-subtle: hsl(270, 55%, 15%);
@@ -508,7 +518,9 @@ h6 {
                   0 4px 6px -4px hsl(0 0% 0% / 0.45);
   --shadow-xl:    0 20px 25px -5px hsl(0 0% 0% / 0.50),
                   0 8px 10px -6px hsl(0 0% 0% / 0.50);
-  --shadow-focus: 0 0 0 3px hsl(215 80% 60% / 0.45);
+  /* Cyan focus ring in dark mode to match the Operator Console accent (was a
+     stray blue 215 that didn't match the cyan brand). */
+  --shadow-focus: 0 0 0 3px hsl(188 92% 52% / 0.50);
 }
 
 /* ── 10. Base Element Styles ──────────────────────────────────────────────── */

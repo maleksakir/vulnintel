@@ -5,6 +5,7 @@ import type {
   SearchResultItem,
 } from '@threat-lens/contracts';
 import { embed } from '../embed';
+import { looksNaturalLanguage, parseNlQuery } from '../nlQuery';
 import { checkAndIncrementQuota } from '../quota';
 import {
   fuseRerank,
@@ -54,20 +55,61 @@ export async function searchCves(
     };
   }
 
+  // ── Natural-language query parse (AI, budget-gated) ───────────────────────
+  // "critical apache rce from 2024" → cleaned query + structured filters.
+  // Only when the query looks natural-language AND we're under the same shared
+  // daily AI budget rerank uses (reusing quota's pre-increment count — no new
+  // counter). Parsed filters MERGE with explicit UI filters (UI wins on
+  // conflict). Degrades silently: on skip/failure the raw query is used.
+  let effectiveQuery = req.query;
+  let effectiveFilters: SearchFilters | undefined = req.filters;
+  let interpretation: SearchResponse['interpretation'];
+  const dailyCount = quota.dailyCount ?? 0;
+  if (
+    req.query &&
+    !req.similarTo &&
+    looksNaturalLanguage(req.query) &&
+    dailyCount < RERANK_DAILY_SEARCH_CAP
+  ) {
+    const parsed = await parseNlQuery(env.AI, req.query);
+    if (parsed) {
+      // Merge: UI-supplied filters take precedence; NL fills the gaps.
+      const merged: SearchFilters = { ...req.filters };
+      if (merged.severity === undefined && parsed.severity.length > 0)
+        merged.severity = parsed.severity;
+      if (merged.vendor === undefined && parsed.vendor.length > 0) merged.vendor = parsed.vendor;
+      if (merged.kev === undefined && parsed.kev === true) merged.kev = true;
+      if (merged.minCvss === undefined && parsed.minCvss !== null) merged.minCvss = parsed.minCvss;
+      if (merged.publishedSince === undefined && parsed.publishedSince !== null)
+        merged.publishedSince = parsed.publishedSince;
+      effectiveFilters = merged;
+      // Use the cleaned query for retrieval when the model returned one.
+      if (parsed.query && parsed.query.length > 0) effectiveQuery = parsed.query;
+      interpretation = {
+        query: effectiveQuery ?? req.query,
+        severity: merged.severity ?? [],
+        vendor: merged.vendor ?? [],
+        kev: merged.kev ?? false,
+        minCvss: merged.minCvss ?? null,
+        publishedSince: merged.publishedSince ?? null,
+      };
+    }
+  }
+
   const ftsRanks = new Map<string, number>(); // cveId → 1-based rank
   const vecRanks = new Map<string, number>(); // cveId → 1-based rank
   const snippetMap = new Map<string, string>();
 
   // ── Exact CVE ID shortcut ─────────────────────────────────────────────────
-  const isExactId = req.query && /^CVE-\d{4}-\d+$/i.test(req.query.trim());
-  if (isExactId && req.query) {
-    const id = req.query.trim().toUpperCase();
+  const isExactId = effectiveQuery && /^CVE-\d{4}-\d+$/i.test(effectiveQuery.trim());
+  if (isExactId && effectiveQuery) {
+    const id = effectiveQuery.trim().toUpperCase();
     ftsRanks.set(id, 1);
   }
 
   // ── FTS5 search ───────────────────────────────────────────────────────────
-  if (req.query && !isExactId) {
-    const fts = sanitizeFts5(req.query);
+  if (effectiveQuery && !isExactId) {
+    const fts = sanitizeFts5(effectiveQuery);
     if (fts) {
       const rows = await env.DB.prepare(
         `SELECT cve_id FROM cve_search WHERE cve_search MATCH ? ORDER BY rank LIMIT 200`,
@@ -93,9 +135,9 @@ export async function searchCves(
     } catch {
       queryVec = null;
     }
-  } else if (req.query && !isExactId) {
+  } else if (effectiveQuery && !isExactId) {
     try {
-      queryVec = await embed(env.AI, req.query);
+      queryVec = await embed(env.AI, effectiveQuery);
     } catch {
       queryVec = null;
       embedFailed = true;
@@ -104,7 +146,7 @@ export async function searchCves(
 
   if (queryVec) {
     try {
-      const vecFilter = buildVecFilter(req.filters);
+      const vecFilter = buildVecFilter(effectiveFilters);
       const vecRes = await env.VECTORIZE.query(queryVec, {
         topK: 200,
         returnMetadata: 'indexed',
@@ -132,7 +174,9 @@ export async function searchCves(
   rrfScores.sort((a, b) => b[1] - a[1]);
 
   if (rrfScores.length === 0) {
-    return { response: { results: [], truncated: false } };
+    return {
+      response: { results: [], truncated: false, ...(interpretation && { interpretation }) },
+    };
   }
 
   // Take up to 200 candidates for D1 post-filter.
@@ -142,25 +186,26 @@ export async function searchCves(
   const metaMap = await fetchCveMeta(candidateIds, env.DB);
   const vendorMap = await fetchVendors(candidateIds, env.DB);
 
-  // Apply D1-level filters (vendor, publishedSince)
+  // Apply D1-level filters (vendor, publishedSince) — using the effective
+  // filters (explicit UI filters merged with any NL-parsed ones).
   const filtered = rrfScores.filter(([id, _score]) => {
     const row = metaMap.get(id);
     if (!row) return false;
-    if (req.filters?.vendor?.length) {
+    if (effectiveFilters?.vendor?.length) {
       const v = vendorMap.get(id) ?? [];
-      if (!req.filters.vendor.some((fv) => v.includes(fv))) return false;
+      if (!effectiveFilters.vendor.some((fv) => v.includes(fv))) return false;
     }
-    if (req.filters?.publishedSince) {
-      const since = new Date(req.filters.publishedSince).getTime();
+    if (effectiveFilters?.publishedSince) {
+      const since = new Date(effectiveFilters.publishedSince).getTime();
       if (row.published_at < since) return false;
     }
-    if (req.filters?.kev === true && row.kev_listed !== 1) return false;
+    if (effectiveFilters?.kev === true && row.kev_listed !== 1) return false;
     if (
-      req.filters?.severity?.length &&
-      !req.filters.severity.includes(row.severity as SearchResultItem['severity'])
+      effectiveFilters?.severity?.length &&
+      !effectiveFilters.severity.includes(row.severity as SearchResultItem['severity'])
     )
       return false;
-    if (req.filters?.minCvss !== undefined && (row.cvss_base ?? 0) < req.filters.minCvss)
+    if (effectiveFilters?.minCvss !== undefined && (row.cvss_base ?? 0) < effectiveFilters.minCvss)
       return false;
     return true;
   });
@@ -172,7 +217,7 @@ export async function searchCves(
   // as a third RRF-style term (see fuseRerank) rather than replacing RRF
   // order outright, so exact lexical/CVE-ID matches stay protected.
   let rankedFiltered = filtered;
-  const rerankQuery = req.query;
+  const rerankQuery = effectiveQuery;
   const canAttemptRerank =
     typeof rerankQuery === 'string' &&
     rerankQuery.trim().length > 0 &&
@@ -185,8 +230,8 @@ export async function searchCves(
     // already read for the org-wide quota check above — zero extra D1/KV
     // operations, no new counter (see quota.ts and CLAUDE.md's KV-quota
     // incident). Once the daily cap is hit, every search for the rest of
-    // the UTC day silently falls back to plain RRF ordering.
-    const dailyCount = quota.dailyCount ?? 0;
+    // the UTC day silently falls back to plain RRF ordering. (dailyCount was
+    // read once above for the NL-parse gate; reused here.)
     if (dailyCount >= RERANK_DAILY_SEARCH_CAP) {
       logRerankAttempt('budget-skip', 0, 0);
     } else {
@@ -226,7 +271,7 @@ export async function searchCves(
     };
   });
 
-  return { response: { results, truncated } };
+  return { response: { results, truncated, ...(interpretation && { interpretation }) } };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

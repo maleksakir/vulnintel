@@ -21,7 +21,7 @@
   <PageHeader
     eyebrow="QUERY CONSOLE"
     title="CVE Search"
-    subtitle="Keyword, CVE ID, vendor or technology — fused full-text and semantic ranking."
+    subtitle="Keyword, CVE ID, or plain English — e.g. “critical apache RCE from 2024”. Fused full-text + semantic ranking, with AI that turns a natural-language query into filters."
   />
 
   <form class="search-form" method="GET">
@@ -32,7 +32,7 @@
         type="search"
         name="q"
         value={data.query}
-        placeholder="Search CVEs by keyword, CVE ID, vendor, or technology…"
+        placeholder="e.g. “critical apache RCE from 2024”, log4j, or CVE-2021-44228…"
         aria-label="Search CVEs"
         autofocus
       />
@@ -102,6 +102,21 @@
       <span>Nothing found for <strong>"{data.query}"</strong>. Try broader terms or fewer filters.</span>
     </div>
   {:else if data.results.length > 0}
+    {#if data.interpretation}
+      {@const ip = data.interpretation}
+      <div class="interpreted" role="status">
+        <span class="interpreted__ai">✦ AI read your query as</span>
+        <div class="interpreted__chips">
+          {#if ip.query}<span class="ichip">“{ip.query}”</span>{/if}
+          {#each ip.severity as s}<span class="ichip ichip--sev">{s}</span>{/each}
+          {#each ip.vendor as v}<span class="ichip">vendor: {v}</span>{/each}
+          {#if ip.kev}<span class="ichip ichip--kev">KEV only</span>{/if}
+          {#if ip.minCvss !== null}<span class="ichip">CVSS ≥ {ip.minCvss}</span>{/if}
+          {#if ip.publishedSince}<span class="ichip">since {new Date(ip.publishedSince).getFullYear()}</span>{/if}
+        </div>
+      </div>
+    {/if}
+
     <div class="results-header">
       <p class="results-count">
         {data.results.length}{data.truncated ? '+' : ''} results
@@ -209,4 +224,24 @@
     letter-spacing: var(--tracking-wide);
     color: var(--color-text-tertiary);
   }
+
+  /* AI query interpretation strip */
+  .interpreted {
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4); margin-block-end: var(--space-4);
+    border: 1px solid var(--color-brand-border); border-radius: var(--radius-md);
+    background: var(--color-brand-subtle);
+  }
+  .interpreted__ai {
+    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-brand-text);
+    text-transform: uppercase; letter-spacing: var(--tracking-wide); flex-shrink: 0;
+  }
+  .interpreted__chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .ichip {
+    font-size: var(--text-xs); color: var(--color-text-secondary);
+    background: var(--color-surface-raised); border: 1px solid var(--color-border-default);
+    padding: 0.15rem 0.5rem; border-radius: var(--radius-sm);
+  }
+  .ichip--sev { color: var(--color-high-text); border-color: var(--color-high-border); }
+  .ichip--kev { color: var(--color-kev-text); border-color: var(--color-kev); }
 </style>

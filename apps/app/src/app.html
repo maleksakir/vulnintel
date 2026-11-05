@@ -9,6 +9,19 @@
     <meta name="theme-color" content="#0a1016" />
     <title>Threat-Lens CVE Hub</title>
     <!-- Threat-Lens · Engineered by Sakir Malek -->
+    <!-- Apply the saved theme BEFORE first paint so a light-mode user doesn't
+         get a dark flash (the markup defaults to dark). Runs synchronously in
+         <head>; the layout's $effect keeps localStorage in sync after hydration. -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem('theme');
+          if (t === 'light' || t === 'dark') {
+            document.documentElement.setAttribute('data-theme', t);
+          }
+        } catch (e) {}
+      })();
+    </script>
     %sveltekit.head%
   </head>
   <body data-sveltekit-preload-data="hover">%sveltekit.body%</body>

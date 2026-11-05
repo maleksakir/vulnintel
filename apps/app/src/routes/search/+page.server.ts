@@ -52,6 +52,7 @@ export const load: PageServerLoad = async ({ url, platform, locals }) => {
       platform!,
       locals.clientIp,
     );
+    // response already carries `interpretation` when NL parsing ran.
     return { query: q, ...response, quotaError: quotaError ?? null, filters };
   } catch {
     return {

@@ -1,6 +1,7 @@
-import type { AffectedProductsResponse } from '@threat-lens/contracts';
+import type { AffectedProductsResponse, AffectedVersionsResponse } from '@threat-lens/contracts';
 import { cacheReadJson } from '$lib/server/cacheRead';
 import { getAffectedProducts } from '$lib/server/queries/getAffectedProducts';
+import { getProductVersions } from '$lib/server/queries/getProductVersions';
 import { validateAffectedProductsParams } from '$lib/server/validate/index';
 import type { PageServerLoad } from './$types';
 
@@ -28,12 +29,22 @@ export const load: PageServerLoad = async ({ url, platform }) => {
   const validation = validateAffectedProductsParams(url.searchParams);
 
   if (!db || !validation.ok) {
-    return { rows: [], nextCursor: null, vendor: '', product: '', dataError: false };
+    return {
+      rows: [],
+      nextCursor: null,
+      vendor: '',
+      product: '',
+      versions: null,
+      dataError: false,
+    };
   }
 
   const { vendor, product, minCvss, cursor } = validation.value;
   const isDefaultView =
     vendor === undefined && product === undefined && minCvss === undefined && cursor === undefined;
+  // Drill-down mode: a specific vendor AND product are selected → also load
+  // the version-level breakdown for that product.
+  const drillDown = vendor !== undefined && product !== undefined;
 
   // Degrade to empty + a flag if D1 is unavailable on a cache miss (free-tier
   // read cap / outage), rather than 500ing the page.
@@ -45,13 +56,19 @@ export const load: PageServerLoad = async ({ url, platform }) => {
           )
         : await getAffectedProducts(validation.value, db);
 
-    return { ...result, vendor: vendor ?? '', product: product ?? '', dataError: false };
+    let versions: AffectedVersionsResponse | null = null;
+    if (drillDown && vendor && product) {
+      versions = await getProductVersions(db, vendor, product);
+    }
+
+    return { ...result, vendor: vendor ?? '', product: product ?? '', versions, dataError: false };
   } catch {
     return {
       rows: [],
       nextCursor: null,
       vendor: vendor ?? '',
       product: product ?? '',
+      versions: null,
       dataError: true,
     };
   }
