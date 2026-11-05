@@ -129,6 +129,12 @@
     --color-surface-300: var(--color-surface-overlay);
     --color-primary: var(--color-brand-default);
     z-index: var(--z-tooltip);
+    /* LayerChart portals this to <body>. Pin it out of document flow and give
+       it zero flow footprint so an idle (hidden) tooltip container can't
+       extend the page height and open a blank band below the footer on
+       chart-bearing pages (the dashboard). */
+    position: fixed;
+    pointer-events: none;
   }
 
   :global(.lc-tooltip-root .lc-tooltip-container) {

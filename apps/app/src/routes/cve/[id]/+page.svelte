@@ -8,6 +8,45 @@
   function isoToDate(iso: string | null) {
     return iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
   }
+
+  // Age of the CVE in days since publication — a quick "how old is this" signal.
+  const ageDays = $derived(
+    Math.max(0, Math.floor((Date.now() - new Date(data.detail.publishedAt).getTime()) / 86_400_000)),
+  );
+
+  // ── CVSS vector decoder ──────────────────────────────────────────────────
+  // Turn the raw vector (e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H")
+  // into readable attack metrics. All data is already in the vector string —
+  // this just makes it human-legible instead of making a researcher decode it.
+  const CVSS_LABELS: Record<string, { label: string; values: Record<string, string>; hot?: string[] }> = {
+    AV: { label: 'Attack Vector', values: { N: 'Network', A: 'Adjacent', L: 'Local', P: 'Physical' }, hot: ['N'] },
+    AC: { label: 'Attack Complexity', values: { L: 'Low', H: 'High' }, hot: ['L'] },
+    PR: { label: 'Privileges Required', values: { N: 'None', L: 'Low', H: 'High' }, hot: ['N'] },
+    UI: { label: 'User Interaction', values: { N: 'None', R: 'Required', P: 'Passive', A: 'Active' }, hot: ['N'] },
+    S: { label: 'Scope', values: { U: 'Unchanged', C: 'Changed' }, hot: ['C'] },
+    C: { label: 'Confidentiality', values: { H: 'High', L: 'Low', N: 'None' }, hot: ['H'] },
+    I: { label: 'Integrity', values: { H: 'High', L: 'Low', N: 'None' }, hot: ['H'] },
+    A: { label: 'Availability', values: { H: 'High', L: 'Low', N: 'None' }, hot: ['H'] },
+  };
+  interface DecodedMetric { key: string; label: string; value: string; hot: boolean }
+  const cvssMetrics = $derived.by<DecodedMetric[]>(() => {
+    const vec = data.detail.cvss?.vector;
+    if (!vec) return [];
+    const out: DecodedMetric[] = [];
+    for (const part of vec.split('/')) {
+      const [k, v] = part.split(':');
+      if (!k || !v) continue;
+      const def = CVSS_LABELS[k];
+      if (!def) continue; // skip CVSS:3.1 prefix and any unknown metric
+      out.push({
+        key: k,
+        label: def.label,
+        value: def.values[v] ?? v,
+        hot: def.hot?.includes(v) ?? false,
+      });
+    }
+    return out;
+  });
 </script>
 
 <svelte:head>
@@ -124,6 +163,16 @@
     </section>
   {/if}
 
+  <!-- Key facts strip — fast orientation before the detail sections. -->
+  <dl class="facts">
+    <div class="fact"><dt>Published</dt><dd>{isoToDate(data.detail.publishedAt)} <span class="fact__age">· {ageDays}d ago</span></dd></div>
+    <div class="fact"><dt>Last modified</dt><dd>{isoToDate(data.detail.lastModifiedAt)}</dd></div>
+    <div class="fact"><dt>CVSS</dt><dd>{data.detail.cvss ? `${data.detail.cvss.base.toFixed(1)} (v${data.detail.cvss.version})` : '—'}</dd></div>
+    <div class="fact"><dt>EPSS pct</dt><dd>{data.detail.state.epssPercentile !== null ? `${(data.detail.state.epssPercentile * 100).toFixed(1)}th` : '—'}</dd></div>
+    <div class="fact"><dt>Weaknesses</dt><dd>{data.detail.cwes.length || '—'}</dd></div>
+    <div class="fact"><dt>Affected products</dt><dd>{data.detail.cpes.length}{data.detail.cpes.length >= 500 ? '+' : ''}</dd></div>
+  </dl>
+
   <!-- Description -->
   <section class="cve-section" aria-labelledby="desc-heading">
     <h2 id="desc-heading" class="section-title">Description</h2>
@@ -131,50 +180,59 @@
   </section>
 
   <div class="two-col">
-    <!-- CVSS Metrics -->
+    <!-- CVSS Metrics — decoded attack vector -->
     {#if data.detail.cvss}
       <section class="cve-section" aria-labelledby="cvss-heading">
-        <h2 id="cvss-heading" class="section-title">CVSS {data.detail.cvss.version}</h2>
-        <dl class="metric-grid">
-          <dt>Vector</dt>
-          <dd><code class="mono">{data.detail.cvss.vector}</code></dd>
-          <dt>Base Score</dt>
-          <dd class="score-value score-value--{data.detail.severity.toLowerCase()}">{data.detail.cvss.base.toFixed(1)}</dd>
-          {#if data.detail.cvss.exploitability !== null}
-            <dt>Exploitability</dt>
-            <dd>{data.detail.cvss.exploitability.toFixed(2)}</dd>
-          {/if}
-          {#if data.detail.cvss.impact !== null}
-            <dt>Impact</dt>
-            <dd>{data.detail.cvss.impact.toFixed(2)}</dd>
-          {/if}
-        </dl>
+        <h2 id="cvss-heading" class="section-title">
+          CVSS {data.detail.cvss.version}
+          <span class="cvss-score score-value--{data.detail.severity.toLowerCase()}">{data.detail.cvss.base.toFixed(1)}</span>
+        </h2>
+        <table class="kv-table">
+          <tbody>
+            {#each cvssMetrics as m (m.key)}
+              <tr>
+                <th scope="row">{m.label}</th>
+                <td class:kv-hot={m.hot}>{m.value}</td>
+              </tr>
+            {/each}
+            {#if data.detail.cvss.exploitability !== null}
+              <tr><th scope="row">Exploitability sub-score</th><td class="mono">{data.detail.cvss.exploitability.toFixed(2)}</td></tr>
+            {/if}
+            {#if data.detail.cvss.impact !== null}
+              <tr><th scope="row">Impact sub-score</th><td class="mono">{data.detail.cvss.impact.toFixed(2)}</td></tr>
+            {/if}
+          </tbody>
+        </table>
+        <p class="cvss-vector"><code class="mono">{data.detail.cvss.vector}</code></p>
       </section>
     {/if}
 
     <!-- Threat Intel -->
     <section class="cve-section" aria-labelledby="threat-heading">
       <h2 id="threat-heading" class="section-title">Threat Intelligence</h2>
-      <dl class="metric-grid">
-        <dt>KEV Listed</dt>
-        <dd>{data.detail.state.kevListed ? '✓ Yes' : 'No'}</dd>
-        {#if data.detail.state.kevDateAdded}
-          <dt>Date Added</dt>
-          <dd>{isoToDate(data.detail.state.kevDateAdded)}</dd>
-        {/if}
-        {#if data.detail.state.kevDueDate}
-          <dt>Due Date</dt>
-          <dd>{isoToDate(data.detail.state.kevDueDate)}</dd>
-        {/if}
-        {#if data.detail.state.epssScore !== null}
-          <dt>EPSS Score</dt>
-          <dd>{(data.detail.state.epssScore * 100).toFixed(2)}%</dd>
-        {/if}
-        {#if data.detail.state.epssPercentile !== null}
-          <dt>EPSS Percentile</dt>
-          <dd>{(data.detail.state.epssPercentile * 100).toFixed(1)}th</dd>
-        {/if}
-      </dl>
+      <table class="kv-table">
+        <tbody>
+          <tr>
+            <th scope="row">Known Exploited (KEV)</th>
+            <td class:kv-hot={data.detail.state.kevListed}>{data.detail.state.kevListed ? 'Yes — actively exploited' : 'Not listed'}</td>
+          </tr>
+          {#if data.detail.state.kevDateAdded}
+            <tr><th scope="row">KEV date added</th><td>{isoToDate(data.detail.state.kevDateAdded)}</td></tr>
+          {/if}
+          {#if data.detail.state.kevDueDate}
+            <tr><th scope="row">Remediation due</th><td>{isoToDate(data.detail.state.kevDueDate)}</td></tr>
+          {/if}
+          {#if data.detail.state.epssScore !== null}
+            <tr><th scope="row">EPSS score</th><td class="mono">{(data.detail.state.epssScore * 100).toFixed(2)}%</td></tr>
+          {/if}
+          {#if data.detail.state.epssPercentile !== null}
+            <tr><th scope="row">EPSS percentile</th><td class="mono">{(data.detail.state.epssPercentile * 100).toFixed(1)}th</td></tr>
+          {/if}
+          {#if data.detail.exploitMaturity}
+            <tr><th scope="row">Public exploit</th><td class="kv-hot">{data.detail.exploitMaturity === 'weaponized' ? 'Weaponized' : data.detail.exploitMaturity === 'poc' ? 'Proof-of-concept' : 'Detection'}</td></tr>
+          {/if}
+        </tbody>
+      </table>
       {#if data.detail.state.kevRequiredAction}
         <p class="kev-action"><strong>Required Action:</strong> {data.detail.state.kevRequiredAction}</p>
       {/if}
@@ -417,15 +475,34 @@
   .cve-description { font-size: var(--text-base); line-height: var(--leading-relaxed); color: var(--color-text-secondary); margin: 0; }
 
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--layout-card-gap); margin-block-end: var(--space-8); }
-  .metric-grid { display: grid; grid-template-columns: 8rem 1fr; gap: var(--space-1) var(--space-4); font-size: var(--text-sm); margin: 0; }
-  .metric-grid dt { color: var(--color-text-tertiary); }
-  .metric-grid dd { color: var(--color-text-secondary); margin: 0; }
-  .score-value { font-size: var(--text-2xl); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
+  /* Key facts strip */
+  .facts {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: var(--space-1) var(--space-5); margin: 0 0 var(--space-8);
+    padding: var(--space-4) var(--space-5);
+    border: 1px solid var(--color-border-default); border-radius: var(--radius-lg);
+    background: var(--color-surface-raised);
+  }
+  .fact { display: flex; flex-direction: column; gap: 2px; }
+  .fact dt { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0; }
+  .fact dd { font-size: var(--text-sm); font-weight: var(--weight-medium); color: var(--color-text-primary); margin: 0; }
+  .fact__age { color: var(--color-text-tertiary); font-weight: var(--weight-regular); }
+
+  /* Key/value metric table (CVSS decoded + threat intel) */
+  .kv-table { width: 100%; border-collapse: collapse; font-size: var(--text-sm); }
+  .kv-table th[scope='row'] { text-align: left; font-weight: var(--weight-regular); color: var(--color-text-tertiary); padding: var(--space-1_5) var(--space-3) var(--space-1_5) 0; white-space: nowrap; vertical-align: top; }
+  .kv-table td { color: var(--color-text-primary); padding: var(--space-1_5) 0; }
+  .kv-table tr + tr th, .kv-table tr + tr td { border-top: 1px solid var(--color-border-subtle); }
+  .kv-hot { color: var(--color-critical-text); font-weight: var(--weight-semibold); }
+
+  .cvss-score { margin-left: auto; font-size: var(--text-xl); font-weight: var(--weight-bold); font-variant-numeric: tabular-nums; }
   .score-value--critical { color: var(--color-critical-text); }
   .score-value--high { color: var(--color-high-text); }
   .score-value--medium { color: var(--color-medium-text); }
   .score-value--low { color: var(--color-low-text); }
   .score-value--none { color: var(--color-none-text); }
+  .cvss-vector { margin: var(--space-3) 0 0; }
+  .cvss-vector code { font-size: var(--text-2xs); color: var(--color-text-tertiary); background: var(--color-surface-sunken); padding: 0.2rem 0.4rem; border-radius: var(--radius-sm); word-break: break-all; }
   .mono { font-family: var(--font-mono); font-size: var(--text-xs); word-break: break-all; }
   .kev-action { font-size: var(--text-sm); color: var(--color-text-secondary); margin: var(--space-3) 0 0; line-height: 1.5; }
 

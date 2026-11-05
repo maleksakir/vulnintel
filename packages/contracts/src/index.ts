@@ -15,6 +15,7 @@ export type {
   AffectedProductRow,
   AffectedProductsRequest,
   AffectedProductsResponse,
+  AffectedVersionCve,
   AffectedVersionRow,
   AffectedVersionsResponse,
   CpeRow,

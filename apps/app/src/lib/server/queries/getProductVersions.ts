@@ -1,4 +1,5 @@
 import type {
+  AffectedVersionCve,
   AffectedVersionRow,
   AffectedVersionsResponse,
   Severity,
@@ -56,16 +57,17 @@ interface Group {
   version: string | null;
   rangeSummary: string | null;
   part: 'a' | 'o' | 'h' | null;
-  cves: Set<string>;
   kevCves: Set<string>;
   maxRank: number;
   maxCvss: number | null;
-  // cveId → published_at, for picking the most-recent samples.
-  sample: Map<string, number>;
+  // cveId → full CVE record for this version group (deduped by id).
+  cves: Map<string, AffectedVersionCve & { rank: number; ts: number }>;
 }
 
 const MAX_CPE_ROWS = 20_000; // hard ceiling for one product's CPE scan
-const MAX_SAMPLE = 5;
+// Max CVEs listed per version group in the response (keeps payload bounded on
+// a product+version with a very long CVE history).
+const MAX_CVES_PER_GROUP = 200;
 
 export async function getProductVersions(
   db: D1Database,
@@ -101,30 +103,39 @@ export async function getProductVersions(
         version: discrete,
         rangeSummary: range,
         part: (r.part as Group['part']) ?? null,
-        cves: new Set(),
         kevCves: new Set(),
         maxRank: 0,
         maxCvss: null,
-        sample: new Map(),
+        cves: new Map(),
       };
       groups.set(key, g);
     }
-    g.cves.add(r.cve_id);
     if (r.kev_listed === 1) g.kevCves.add(r.cve_id);
     const rank = SEVERITY_RANK[r.severity] ?? 0;
     if (rank > g.maxRank) g.maxRank = rank;
     if (r.cvss_base !== null && (g.maxCvss === null || r.cvss_base > g.maxCvss)) {
       g.maxCvss = r.cvss_base;
     }
-    if (!g.sample.has(r.cve_id)) g.sample.set(r.cve_id, r.published_at);
+    if (!g.cves.has(r.cve_id)) {
+      g.cves.set(r.cve_id, {
+        cveId: r.cve_id,
+        severity: (r.severity as Severity) ?? null,
+        cvssBase: r.cvss_base,
+        kevListed: r.kev_listed === 1,
+        publishedAt: new Date(r.published_at).toISOString(),
+        rank,
+        ts: r.published_at,
+      });
+    }
   }
 
   const versions: AffectedVersionRow[] = [...groups.values()]
     .map((g) => {
-      const sampleCveIds = [...g.sample.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, MAX_SAMPLE)
-        .map(([id]) => id);
+      // CVEs most-severe first, then most-recently-published.
+      const cves: AffectedVersionCve[] = [...g.cves.values()]
+        .sort((a, b) => (b.rank !== a.rank ? b.rank - a.rank : b.ts - a.ts))
+        .slice(0, MAX_CVES_PER_GROUP)
+        .map(({ rank: _r, ts: _t, ...cve }) => cve);
       return {
         version: g.version,
         rangeSummary: g.rangeSummary,
@@ -133,7 +144,7 @@ export async function getProductVersions(
         kevCount: g.kevCves.size,
         maxCvssBase: g.maxCvss,
         maxSeverity: RANK_TO_SEVERITY[g.maxRank] ?? null,
-        sampleCveIds,
+        cves,
       };
     })
     // Most severe first, then most CVEs, then version/range label.

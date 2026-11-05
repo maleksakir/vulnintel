@@ -208,6 +208,15 @@ export interface AffectedProductsResponse {
  *  the drill-down view. `version` is the discrete CPE version when present;
  *  `rangeSummary` is the reconstructed bound (">=1.0 <1.4.2") for range-only
  *  CPEs. Exactly one of the two is the primary identity of the row. */
+/** One CVE affecting a specific product version, with its headline fields. */
+export interface AffectedVersionCve {
+  cveId: string;
+  severity: Severity | null;
+  cvssBase: number | null;
+  kevListed: boolean;
+  publishedAt: string; // ISO 8601
+}
+
 export interface AffectedVersionRow {
   /** Discrete version string, or null for a range-only entry. */
   version: string | null;
@@ -219,8 +228,9 @@ export interface AffectedVersionRow {
   kevCount: number;
   maxCvssBase: number | null;
   maxSeverity: Severity | null;
-  /** A few representative CVE ids affecting this version (most recent first). */
-  sampleCveIds: string[];
+  /** The CVEs affecting this version, most severe / most recent first
+   *  (bounded). The UI lists them all when a version is expanded. */
+  cves: AffectedVersionCve[];
 }
 
 /** GET /api/affected-products/versions?vendor=&product= — version drill-down. */

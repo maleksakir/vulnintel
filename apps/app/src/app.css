@@ -547,6 +547,17 @@ body {
    open a blank band below the footer. Keeping the column on .app-shell makes
    the footer anchoring immune to whatever gets portalled into body. */
 
+/* Belt-and-braces: LayerChart portals its tooltip to <body>. If that container
+   ever sits in normal flow with any height, it extends the document below the
+   footer and opens a blank band (seen on the chart-bearing dashboard). Pin any
+   LayerChart-portalled element out of flow globally, so it can never affect
+   page height regardless of which component's scoped CSS has loaded. */
+body > .lc-tooltip-root,
+body > [class*='lc-tooltip'] {
+  position: fixed !important;
+  pointer-events: none;
+}
+
 /* Anchor base */
 a {
   color: var(--color-brand-default);

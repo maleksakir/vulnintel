@@ -89,42 +89,55 @@
         <div class="vstat vstat--kev"><dt>KEV</dt><dd class="mono">{vstats.kev.toLocaleString()}</dd></div>
       </dl>
 
-      <div class="data-grid__wrap">
-        <table class="data-grid">
-          <thead>
-            <tr>
-              <th>Version / range</th>
-              <th>Type</th>
-              <th>CVEs</th>
-              <th>KEV</th>
-              <th>Max CVSS</th>
-              <th>Severity</th>
-              <th>Sample CVEs</th>
-            </tr>
-          </thead>
-          <tbody>
-            {#each data.versions.versions as v (v.version ?? v.rangeSummary ?? 'any')}
-              <tr>
-                <td class="mono">
+      <!-- Each version is an expandable group listing ALL its CVEs. When there
+           is only one version group it's expanded by default, so a
+           single-version product reads straight as a CVE list. -->
+      <ul class="vgroups" role="list">
+        {#each data.versions.versions as v (v.version ?? v.rangeSummary ?? 'any')}
+          <li>
+            <details class="vgroup" open={data.versions.versions.length === 1}>
+              <summary class="vgroup__summary">
+                <span class="vgroup__ver mono">
                   {#if v.version}{v.version}{:else if v.rangeSummary}{v.rangeSummary}{:else}<span class="dim">all versions</span>{/if}
-                </td>
-                <td>
-                  <span class="part-chip">{v.part === 'a' ? 'app' : v.part === 'o' ? 'os' : v.part === 'h' ? 'hw' : '—'}</span>
-                </td>
-                <td class="mono">{v.cveCount.toLocaleString()}</td>
-                <td>{#if v.kevCount > 0}<span class="kev-chip">{v.kevCount}</span>{:else}<span class="dim">—</span>{/if}</td>
-                <td class="mono">{v.maxCvssBase !== null ? v.maxCvssBase.toFixed(1) : '—'}</td>
-                <td><SeverityBadge severity={v.maxSeverity} variant="text" /></td>
-                <td class="samples">
-                  {#each v.sampleCveIds as id (id)}
-                    <a class="cve-link" href="/cve/{id}">{id}</a>
-                  {/each}
-                </td>
-              </tr>
-            {/each}
-          </tbody>
-        </table>
-      </div>
+                </span>
+                <span class="part-chip">{v.part === 'a' ? 'app' : v.part === 'o' ? 'os' : v.part === 'h' ? 'hw' : '—'}</span>
+                <span class="vgroup__spacer"></span>
+                {#if v.kevCount > 0}<span class="kev-chip">KEV {v.kevCount}</span>{/if}
+                {#if v.maxCvssBase !== null}<span class="vgroup__cvss mono">CVSS {v.maxCvssBase.toFixed(1)}</span>{/if}
+                <SeverityBadge severity={v.maxSeverity} variant="text" />
+                <span class="vgroup__count mono">{v.cveCount.toLocaleString()} CVE{v.cveCount === 1 ? '' : 's'}</span>
+              </summary>
+              <div class="data-grid__wrap">
+                <table class="data-grid vgroup__table">
+                  <thead>
+                    <tr>
+                      <th>CVE</th>
+                      <th>Severity</th>
+                      <th>CVSS</th>
+                      <th>KEV</th>
+                      <th>Published</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {#each v.cves as cve (cve.cveId)}
+                      <tr>
+                        <td><a class="cve-link" href="/cve/{cve.cveId}">{cve.cveId}</a></td>
+                        <td><SeverityBadge severity={cve.severity} variant="text" /></td>
+                        <td class="mono">{cve.cvssBase !== null ? cve.cvssBase.toFixed(1) : '—'}</td>
+                        <td>{#if cve.kevListed}<span class="kev-chip">KEV</span>{:else}<span class="dim">—</span>{/if}</td>
+                        <td class="mono">{isoToDate(cve.publishedAt)}</td>
+                      </tr>
+                    {/each}
+                  </tbody>
+                </table>
+                {#if v.cveCount > v.cves.length}
+                  <p class="vgroup__more">Showing {v.cves.length} of {v.cveCount} — refine by searching this product.</p>
+                {/if}
+              </div>
+            </details>
+          </li>
+        {/each}
+      </ul>
       {:else}
         <p class="versions__empty">
           No CPE-level version data recorded for this product. It may be named in CVEs only by
@@ -303,11 +316,37 @@
   .vstat dd { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--color-text-primary); margin: 0; }
   .vstat--kev dd { color: var(--color-kev-text); }
   .versions__empty { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0; line-height: var(--leading-snug); }
+
+  /* Expandable version groups */
+  .vgroups { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+  .vgroup {
+    border: 1px solid var(--color-border-default); border-radius: var(--radius-md);
+    background: var(--color-surface-base); overflow: hidden;
+  }
+  .vgroup__summary {
+    display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4); cursor: pointer; list-style: none;
+    font-size: var(--text-sm);
+  }
+  .vgroup__summary::-webkit-details-marker { display: none; }
+  .vgroup__summary::before {
+    content: '▸'; color: var(--color-text-tertiary); font-size: var(--text-xs);
+    transition: transform var(--duration-fast) var(--ease-out); flex-shrink: 0;
+  }
+  .vgroup[open] .vgroup__summary::before { transform: rotate(90deg); }
+  .vgroup__summary:hover { background: var(--color-surface-overlay); }
+  .vgroup__ver { font-weight: var(--weight-semibold); color: var(--color-text-primary); }
+  .vgroup__spacer { flex: 1; }
+  .vgroup__cvss { font-size: var(--text-xs); color: var(--color-text-secondary); }
+  .vgroup__count { font-size: var(--text-xs); color: var(--color-text-tertiary); flex-shrink: 0; }
+  .vgroup__table { margin: 0; }
+  .vgroup__table thead th { background: var(--color-surface-sunken); }
+  .vgroup__more { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: var(--space-2) var(--space-4); }
   .part-chip {
     font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
     letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary);
     background: var(--color-surface-elevated); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm);
   }
-  .samples { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-  .samples .cve-link { font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-brand-text); }
+  .cve-link { font-family: var(--font-mono); color: var(--color-brand-text); }
+  .cve-link:hover { color: var(--color-brand-hover); }
 </style>
