@@ -36,6 +36,31 @@
     theme = theme === 'dark' ? 'light' : 'dark';
   }
 
+  // --- Mobile navigation drawer ---
+  // The nav collapses to a hamburger below the tablet breakpoint (≤900px).
+  // Closed on every route change so a tap-through doesn't leave it open.
+  let mobileNavOpen = $state(false);
+
+  $effect(() => {
+    // Touching $page.url.pathname makes this re-run on navigation.
+    void $page.url.pathname;
+    mobileNavOpen = false;
+  });
+
+  const NAV_LINKS = [
+    { href: '/', label: 'Dashboard', match: (p: string) => p === '/' },
+    { href: '/search', label: 'Search', match: (p: string) => p.startsWith('/search') },
+    {
+      href: '/affected-products',
+      label: 'Affected Products',
+      match: (p: string) => p.startsWith('/affected-products'),
+    },
+    { href: '/threat-intel', label: 'Threat Intel', match: (p: string) => p.startsWith('/threat-intel') },
+    { href: '/watchlists', label: 'Watchlists', match: (p: string) => p.startsWith('/watchlists') },
+    { href: '/assets', label: 'Assets', match: (p: string) => p.startsWith('/assets') },
+    { href: '/remediation', label: 'Remediation', match: (p: string) => p.startsWith('/remediation') },
+  ];
+
   // --- Toast region (§2.4) ---
   type ToastItem = { id: string; variant: ToastVariant; title: string; description?: string; duration?: number };
   let toasts = $state<ToastItem[]>([]);
@@ -73,48 +98,90 @@
     </a>
 
     <ul class="site-nav__links" role="list">
-      <li><a href="/" aria-current={$page.url.pathname === '/' ? 'page' : undefined}>Dashboard</a></li>
-      <li><a href="/search" aria-current={$page.url.pathname.startsWith('/search') ? 'page' : undefined}>Search</a></li>
-      <li><a href="/affected-products" aria-current={$page.url.pathname.startsWith('/affected-products') ? 'page' : undefined}>Affected Products</a></li>
-      <li><a href="/threat-intel" aria-current={$page.url.pathname.startsWith('/threat-intel') ? 'page' : undefined}>Threat Intel</a></li>
-      <li><a href="/watchlists" aria-current={$page.url.pathname.startsWith('/watchlists') ? 'page' : undefined}>Watchlists</a></li>
-      <li><a href="/assets" aria-current={$page.url.pathname.startsWith('/assets') ? 'page' : undefined}>Assets</a></li>
-      <li><a href="/remediation" aria-current={$page.url.pathname.startsWith('/remediation') ? 'page' : undefined}>Remediation</a></li>
+      {#each NAV_LINKS as link}
+        <li>
+          <a href={link.href} aria-current={link.match($page.url.pathname) ? 'page' : undefined}>
+            {link.label}
+          </a>
+        </li>
+      {/each}
     </ul>
 
-    <button
-      class="site-nav__theme-toggle"
-      aria-label="Switch to {theme === 'dark' ? 'light' : 'dark'} mode"
-      onclick={toggleTheme}
-      type="button"
-    >
-      {#if theme === 'dark'}
-        <!-- Sun icon -->
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.4"/>
-          <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M11.5 3.1l-1.4 1.4M4.5 11.5l-1.4 1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
-        </svg>
-      {:else}
-        <!-- Moon icon -->
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
-        </svg>
-      {/if}
-    </button>
+    <div class="site-nav__actions">
+      <button
+        class="site-nav__theme-toggle"
+        aria-label="Switch to {theme === 'dark' ? 'light' : 'dark'} mode"
+        onclick={toggleTheme}
+        type="button"
+      >
+        {#if theme === 'dark'}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <circle cx="8" cy="8" r="3" stroke="currentColor" stroke-width="1.4"/>
+            <path d="M8 1v2M8 13v2M1 8h2M13 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M11.5 3.1l-1.4 1.4M4.5 11.5l-1.4 1.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+          </svg>
+        {:else}
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+            <path d="M13.5 9.5A6 6 0 0 1 6.5 2.5a5.5 5.5 0 1 0 7 7Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
+          </svg>
+        {/if}
+      </button>
+
+      <!-- Hamburger — only visible ≤900px via CSS -->
+      <button
+        class="site-nav__burger"
+        aria-label="{mobileNavOpen ? 'Close' : 'Open'} navigation menu"
+        aria-expanded={mobileNavOpen}
+        aria-controls="mobile-nav"
+        onclick={() => (mobileNavOpen = !mobileNavOpen)}
+        type="button"
+      >
+        {#if mobileNavOpen}
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M5 5l10 10M15 5L5 15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        {:else}
+          <svg width="20" height="20" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M3 6h14M3 10h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        {/if}
+      </button>
+    </div>
   </nav>
+
+  <!-- Mobile drawer -->
+  {#if mobileNavOpen}
+    <div class="mobile-nav-backdrop" onclick={() => (mobileNavOpen = false)} aria-hidden="true"></div>
+    <nav id="mobile-nav" class="mobile-nav" aria-label="Mobile navigation">
+      <ul role="list">
+        {#each NAV_LINKS as link}
+          <li>
+            <a href={link.href} aria-current={link.match($page.url.pathname) ? 'page' : undefined}>
+              {link.label}
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </nav>
+  {/if}
 </header>
 
 <main id="main-content" class="site-main" tabindex="-1">
   {@render children()}
 </main>
 
+<!-- Footer with signature -->
+<footer class="site-footer">
+  <div class="site-footer__inner">
+    <span class="site-footer__brand">Threat-Lens</span>
+    <span class="site-footer__sep" aria-hidden="true">·</span>
+    <span class="site-footer__by">
+      Engineered by <a href="https://github.com/maleksakir" rel="author noopener" target="_blank">Sakir Malek</a>
+    </span>
+  </div>
+</footer>
+
 <!-- Toast region — anchored bottom-right (§2.4) -->
 <Toast toasts={toasts} onClose={removeToast} position="bottom-right" />
-
-<!-- Desktop hint banner (< 768 px) — defined in app.css §12 -->
-<div class="desktop-hint-banner" role="status" aria-live="polite">
-  Threat-Lens is best viewed on a desktop or laptop screen.
-</div>
 
 <style>
   .skip-link {
@@ -228,21 +295,141 @@
     border-radius: var(--radius-full);
   }
 
-  .site-nav__theme-toggle {
+  .site-nav__actions {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    flex-shrink: 0;
+  }
+
+  .site-nav__theme-toggle,
+  .site-nav__burger {
     flex-shrink: 0;
     width: var(--space-8);
     height: var(--space-8);
     border-radius: var(--radius-sm);
-    font-size: var(--text-base);
+    color: var(--color-text-secondary);
     display: flex;
     align-items: center;
     justify-content: center;
     transition: var(--transition-colors);
   }
 
-  .site-nav__theme-toggle:hover {
+  .site-nav__theme-toggle:hover,
+  .site-nav__burger:hover {
     background: var(--color-surface-elevated);
+    color: var(--color-brand-text);
+  }
+
+  /* Hamburger is desktop-hidden; shown ≤900px. */
+  .site-nav__burger {
+    display: none;
+  }
+
+  /* ── Mobile drawer ──────────────────────────────────────────────────────── */
+  .mobile-nav-backdrop {
+    position: fixed;
+    inset: var(--layout-nav-height) 0 0;
+    background: hsl(210 40% 3% / 0.6);
+    backdrop-filter: blur(2px);
+    z-index: calc(var(--z-header) - 1);
+  }
+  .mobile-nav {
+    position: fixed;
+    top: var(--layout-nav-height);
+    left: 0;
+    right: 0;
+    z-index: var(--z-header);
+    background: var(--color-surface-raised);
+    border-bottom: 1px solid var(--color-border-default);
+    box-shadow: var(--shadow-lg), 0 1px 0 hsl(188 92% 52% / 0.12);
+    animation: mobile-nav-in var(--duration-normal) var(--ease-out);
+  }
+  @keyframes mobile-nav-in {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .mobile-nav ul {
+    list-style: none;
+    margin: 0;
+    padding: var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-0_5);
+  }
+  .mobile-nav a {
+    display: block;
+    padding: var(--space-3) var(--space-4);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    letter-spacing: var(--tracking-wide);
+    color: var(--color-text-secondary);
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    border-left: 2px solid transparent;
+    transition: var(--transition-colors);
+  }
+  .mobile-nav a:hover {
+    background: var(--color-surface-elevated);
+    color: var(--color-text-primary);
+    text-decoration: none;
+  }
+  .mobile-nav a[aria-current='page'] {
+    color: var(--color-brand-text);
+    background: var(--color-brand-subtle);
+    border-left-color: var(--color-brand-default);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .mobile-nav { animation: none; }
+  }
+
+  /* ── Footer ─────────────────────────────────────────────────────────────── */
+  .site-footer {
+    border-top: 1px solid var(--color-border-subtle);
+    background: var(--color-surface-sunken);
+    margin-top: var(--space-8);
+  }
+  .site-footer__inner {
+    max-width: calc(var(--layout-content-max) + var(--layout-page-gutter) * 2);
+    margin-inline: auto;
+    padding: var(--space-5) var(--layout-page-gutter);
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+    font-size: var(--text-xs);
+    color: var(--color-text-tertiary);
+  }
+  .site-footer__brand {
+    font-family: var(--font-mono);
+    font-weight: var(--weight-semibold);
+    letter-spacing: var(--tracking-wide);
+    color: var(--color-brand-text);
+  }
+  .site-footer__sep { opacity: 0.5; }
+  .site-footer__by a {
+    color: var(--color-text-secondary);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    border-bottom: 1px dotted var(--color-border-strong);
+    transition: var(--transition-colors);
+  }
+  .site-footer__by a:hover {
+    color: var(--color-brand-text);
+    border-bottom-color: var(--color-brand-default);
+    text-decoration: none;
+  }
+
+  /* ── Responsive: collapse inline nav to the hamburger ≤900px ──────────────── */
+  @media (max-width: 900px) {
+    .site-nav__links {
+      display: none;
+    }
+    .site-nav__burger {
+      display: flex;
+    }
   }
 
   .site-main {
@@ -253,5 +440,15 @@
     margin-inline: auto;
     padding-inline: var(--layout-page-gutter);
     padding-block: var(--layout-section-gap);
+  }
+
+  /* Tighter gutters + nav gap on phones so content gets the full width. */
+  @media (max-width: 600px) {
+    .site-nav { gap: var(--space-3); padding-inline: var(--space-4); }
+    .site-main {
+      padding-inline: var(--space-4);
+      padding-block: var(--space-6);
+    }
+    .site-footer__inner { padding-inline: var(--space-4); }
   }
 </style>

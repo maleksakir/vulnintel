@@ -659,31 +659,33 @@ table {
 .skeleton--circle { border-radius: 50%; }
 .skeleton--none   { border-radius: 0; }
 
-/* ── 12. Responsive: desktop-only banner ─────────────────────────────────── */
+/* ── 12. Responsive foundations ───────────────────────────────────────────── */
 /*
- *  Section 2.8: the app targets SOC analyst desktops (≥ 1024px).
- *  Below 768px a banner advises desktop use; the app remains operable
- *  but is not optimised for that width.
+ *  The app is now fully responsive (phone / tablet / laptop / desktop) — the
+ *  old "best viewed on desktop" banner is gone, replaced by a real mobile nav
+ *  drawer (+layout.svelte) and per-page breakpoints. These globals make the
+ *  data-dense tables and wide layouts behave on narrow screens.
  */
 
-.desktop-hint-banner {
-  display: none;
+.data-grid__wrap,
+.table-wrap {
+  -webkit-overflow-scrolling: touch;
 }
 
-@media (max-width: 767px) {
-  .desktop-hint-banner {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-2);
-    padding: var(--space-2_5) var(--space-4);
-    background: var(--color-medium-subtle);
-    color: var(--color-medium-text);
-    border-bottom: 1px solid var(--color-medium-border);
-    font-size: var(--text-sm);
-    font-weight: var(--weight-medium);
-    text-align: center;
-    line-height: var(--leading-snug);
+/* Comfortable tap targets on touch devices: dense-table cells get a little
+   more vertical room without changing the desktop layout. */
+@media (pointer: coarse) {
+  .data-grid tbody td,
+  .data-table tbody td {
+    padding-top: var(--space-3_5);
+    padding-bottom: var(--space-3_5);
+  }
+}
+
+/* Tighter page gutter on phones so content gets the full width. */
+@media (max-width: 600px) {
+  :root {
+    --layout-page-gutter: 1rem;
   }
 }
 

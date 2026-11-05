@@ -336,4 +336,9 @@
     .charts-grid { grid-template-columns: 1fr; }
     .page-header__readouts { width: 100%; }
   }
+  @media (max-width: 560px) {
+    .kpi-grid { grid-template-columns: 1fr; gap: var(--space-3); }
+    .page-header__readouts { flex-wrap: wrap; gap: var(--space-3) var(--space-5); }
+    .kpi-value { font-size: var(--text-3xl); }
+  }
 </style>
