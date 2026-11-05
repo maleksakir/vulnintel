@@ -6,7 +6,27 @@
 
 export type Severity = 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
 
-export type IngestSource = 'NVD' | 'MITRE' | 'KEV' | 'EPSS' | 'AGING';
+export type IngestSource = 'NVD' | 'MITRE' | 'KEV' | 'EPSS' | 'AGING' | 'EXPLOIT';
+
+/** How weaponised a public exploit signal is, strongest first. A Metasploit
+ *  module or ExploitDB entry is runnable exploit code; a nuclei template is a
+ *  detection signature (proof the thing is real and fingerprintable, not a
+ *  weapon). Drives both UI emphasis and the priority weighting. */
+export type ExploitMaturity = 'weaponized' | 'poc' | 'detection';
+
+export type ExploitSource = 'exploit-db' | 'metasploit' | 'nuclei';
+
+/** One public exploit/PoC/detection reference for a CVE, from a public feed.
+ *  Written to `cve_exploit_reference` (migration 0015). */
+export interface ExploitReference {
+  cveId: string;
+  source: ExploitSource;
+  externalId: string; // EDB-ID, MSF module path, or nuclei template id
+  title: string | null;
+  url: string | null;
+  maturity: ExploitMaturity;
+  publishedAt: number | null; // unix ms
+}
 
 /** Full CPE 2.3 record with version bounds. */
 export interface NormalizedCpe {
@@ -132,6 +152,20 @@ export interface KevQueueMessage {
  *  pipelines/mitreQueue.ts. */
 export interface MitreCweQueueMessage {
   cveIds: string[];
+}
+
+/** exploit-ingest queue message shape — one chunk of exploit references from
+ *  the daily exploit-signal pull (ExploitDB / Metasploit / nuclei), produced
+ *  by `pipelines/exploit.ts` and consumed by `pipelines/exploitQueue.ts`.
+ *
+ *  Same producer/consumer reasoning as EPSS/KEV: the source feeds are full
+ *  snapshots (tens of thousands of exploit rows total), so the per-CVE
+ *  change-detect + write work is chunked onto a queue, each message applied
+ *  in its own invocation with a fresh 50-D1-query budget. Chunk size is set
+ *  so the JSON stays well under Cloudflare Queues' 128KB per-message cap
+ *  (see EXPLOIT_MESSAGE_CHUNK_SIZE in pipelines/exploit.ts). */
+export interface ExploitQueueMessage {
+  references: ExploitReference[];
 }
 
 /** NVD queue message shape — one bounded batch of NormalizedCveRecords from

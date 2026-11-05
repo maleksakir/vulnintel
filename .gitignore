@@ -43,3 +43,8 @@ Thumbs.db
 *.suo
 *.user
 .vs/
+
+# ── Agent working files (session scratch, handoff notes, review drafts) ──────
+scratch/
+semantic-review/
+kiro_handoff_prompt.md

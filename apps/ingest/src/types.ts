@@ -1,5 +1,6 @@
 import type {
   EpssQueueMessage,
+  ExploitQueueMessage,
   KevQueueMessage,
   MitreCweQueueMessage,
   NvdQueueMessage,
@@ -55,6 +56,11 @@ export interface Env {
   // matches into watchlist_match with its own fresh 50-D1-query budget (see
   // lib/server/watchlistReconcile.ts and wrangler.toml).
   WATCHLIST_QUEUE: Queue<WatchlistQueueMessage>;
+  // Exploit-signal queue producer — daily.ts kicks pipelines/exploit.ts (no
+  // spare cron slot), which fetches ExploitDB + Metasploit, chunks, and
+  // enqueues here; pipelines/exploitQueue.ts's consumer does the D1 work with
+  // its own fresh 50-query budget (see wrangler.toml).
+  EXPLOIT_QUEUE: Queue<ExploitQueueMessage>;
   // Secrets (injected via `wrangler secret put`, never in wrangler.toml).
   NVD_API_KEY: string;
   CLOUDFLARE_API_TOKEN: string;

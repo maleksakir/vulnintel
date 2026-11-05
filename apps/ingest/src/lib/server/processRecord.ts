@@ -872,3 +872,115 @@ function emitAnalytics(
     indexes: ['record_processed'],
   });
 }
+
+// ── Exploit-signal patch ─────────────────────────────────────────────────────
+
+// Maturity rank for picking a CVE's single highest signal across its refs.
+const EXPLOIT_MATURITY_RANK: Record<string, number> = {
+  weaponized: 3,
+  poc: 2,
+  detection: 1,
+};
+
+/**
+ * Apply a batch of exploit references (migration 0015). Idempotent upserts into
+ * cve_exploit_reference, then a per-affected-CVE rollup of exploit_count /
+ * exploit_maturity onto cve_state so the CVE list / search / priority can read
+ * "has a public exploit" without joining the reference table per row.
+ *
+ * D1 query budget: 1 batched upsert of the refs + 1 chunked read of the
+ * affected CVEs' current ref counts + 1 batched cve_state rollup write. The
+ * `references` are capped per message (EXPLOIT_MESSAGE_CHUNK_SIZE = 400) and
+ * the reads chunk at SELECT_PARAM_CHUNK_SIZE, so this stays well under the
+ * 50-query cap. cve_state is upserted (not required to pre-exist) so an
+ * exploit ref for a not-yet-ingested CVE still records its signal.
+ */
+export async function applyExploitBatch(
+  references: import('@threat-lens/contracts').ExploitReference[],
+  env: Env,
+  ctx: ExecutionContext,
+): Promise<{ processed: number; cvesAffected: number }> {
+  if (references.length === 0) return { processed: 0, cvesAffected: 0 };
+
+  const now = Date.now();
+
+  // 1. Upsert the reference rows (one db.batch = one query).
+  for (let i = 0; i < references.length; i += WRITE_SUB_BATCH_SIZE) {
+    const sub = references.slice(i, i + WRITE_SUB_BATCH_SIZE);
+    await env.DB.batch(
+      sub.map((r) =>
+        env.DB.prepare(
+          `INSERT INTO cve_exploit_reference
+             (cve_id, source, external_id, title, url, maturity, published_at, ingested_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (cve_id, source, external_id) DO UPDATE SET
+             title        = excluded.title,
+             url          = excluded.url,
+             maturity     = excluded.maturity,
+             published_at = COALESCE(excluded.published_at, published_at),
+             ingested_at  = excluded.ingested_at`,
+        ).bind(r.cveId, r.source, r.externalId, r.title, r.url, r.maturity, r.publishedAt, now),
+      ),
+    );
+  }
+
+  // 2. Recompute the rollup for each affected CVE from the now-current ref
+  //    set (read highest maturity + count per CVE, chunked at the param cap).
+  //
+  //    The read INNER JOINs `cve`, so only CVEs we have actually ingested come
+  //    back — a ref for a not-yet-ingested (or aged-out) CVE is still PERSISTED
+  //    in step 1's cve_exploit_reference write, but must not drive a cve_state
+  //    rollup: cve_state.cve_id is `REFERENCES cve(cve_id)` (migration 0001),
+  //    so an INSERT for a missing CVE would fail the FK constraint and sink the
+  //    whole batch. The reference row keeps the signal on record; the rollup
+  //    fills in the next time this CVE's refs are re-applied after it ingests.
+  const cveIds = [...new Set(references.map((r) => r.cveId))];
+  const rollup = new Map<string, { count: number; maturity: string }>();
+  for (let i = 0; i < cveIds.length; i += SELECT_PARAM_CHUNK_SIZE) {
+    const chunk = cveIds.slice(i, i + SELECT_PARAM_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(',');
+    const { results } = await env.DB.prepare(
+      `SELECT r.cve_id AS cve_id, r.maturity AS maturity
+       FROM cve_exploit_reference r
+       JOIN cve c ON c.cve_id = r.cve_id
+       WHERE r.cve_id IN (${placeholders})`,
+    )
+      .bind(...chunk)
+      .all<{ cve_id: string; maturity: string }>();
+    for (const row of results) {
+      const cur = rollup.get(row.cve_id) ?? { count: 0, maturity: 'detection' };
+      cur.count += 1;
+      if ((EXPLOIT_MATURITY_RANK[row.maturity] ?? 0) > (EXPLOIT_MATURITY_RANK[cur.maturity] ?? 0)) {
+        cur.maturity = row.maturity;
+      }
+      rollup.set(row.cve_id, cur);
+    }
+  }
+
+  // 3. Write the rollup onto cve_state. Upsert so a CVE whose `cve` row exists
+  //    but has no cve_state row yet still records the signal; state_updated_at
+  //    bumped so the app's cache invalidation notices. Only CVEs that survived
+  //    the step-2 JOIN are here, so every INSERT satisfies the FK to `cve`.
+  const rollupRows = [...rollup.entries()];
+  for (let i = 0; i < rollupRows.length; i += WRITE_SUB_BATCH_SIZE) {
+    const sub = rollupRows.slice(i, i + WRITE_SUB_BATCH_SIZE);
+    await env.DB.batch(
+      sub.map(([cveId, v]) =>
+        env.DB.prepare(
+          `INSERT INTO cve_state (cve_id, exploit_count, exploit_maturity, state_updated_at)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT (cve_id) DO UPDATE SET
+             exploit_count    = excluded.exploit_count,
+             exploit_maturity = excluded.exploit_maturity,
+             state_updated_at = excluded.state_updated_at`,
+        ).bind(cveId, v.count, v.maturity, now),
+      ),
+    );
+  }
+
+  // Invalidate the CVE detail cache for affected CVEs so the exploit panel
+  // shows up without waiting for the TTL.
+  ctx.waitUntil(Promise.all(cveIds.map((id) => env.CACHE.delete(`cve:${id}`))));
+
+  return { processed: references.length, cvesAffected: cveIds.length };
+}

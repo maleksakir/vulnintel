@@ -1,4 +1,9 @@
-import type { CpeRow, CveDetailResponse } from '@threat-lens/contracts';
+import type {
+  CpeRow,
+  CveDetailResponse,
+  ExploitMaturity,
+  ExploitReference,
+} from '@threat-lens/contracts';
 
 interface CveRow {
   cve_id: string;
@@ -81,6 +86,11 @@ export async function getCveDetail(
   const row = (cveResult as D1Result<CveRow>).results[0];
   if (!row) return null;
 
+  // Exploit references (migration 0015). Read separately, not in the batch
+  // above, so a database where 0015 hasn't applied yet still returns the CVE
+  // detail instead of failing the whole batch on a missing table.
+  const { exploits, exploitMaturity } = await getExploitRefs(db, cveId);
+
   const cwes = (cweResult as D1Result<CweRow>).results.map((w) => ({
     id: w.id,
     name: w.name ?? w.id,
@@ -134,5 +144,69 @@ export async function getCveDetail(
     cwes,
     cpes,
     references: refs,
+    exploits,
+    exploitMaturity,
   };
+}
+
+interface ExploitRefDbRow {
+  source: string;
+  external_id: string;
+  title: string | null;
+  url: string | null;
+  maturity: string;
+  published_at: number | null;
+}
+
+const EXPLOIT_MATURITY_RANK: Record<ExploitMaturity, number> = {
+  weaponized: 3,
+  poc: 2,
+  detection: 1,
+};
+
+/**
+ * Fetch a CVE's public exploit references + the single highest-maturity level.
+ * Degrades to empty if migration 0015's table doesn't exist yet (so a
+ * deploy-ahead-of-migration serves CVE detail without the exploit panel rather
+ * than 500ing) — same tolerance as the app's other read paths.
+ */
+async function getExploitRefs(
+  db: D1Database,
+  cveId: string,
+): Promise<{ exploits: ExploitReference[]; exploitMaturity: ExploitMaturity | null }> {
+  try {
+    const res = await db
+      .prepare(
+        `SELECT source, external_id, title, url, maturity, published_at
+         FROM cve_exploit_reference WHERE cve_id = ?
+         ORDER BY CASE maturity WHEN 'weaponized' THEN 0 WHEN 'poc' THEN 1 ELSE 2 END,
+                  published_at DESC
+         LIMIT 50`,
+      )
+      .bind(cveId)
+      .all<ExploitRefDbRow>();
+
+    const exploits: ExploitReference[] = res.results.map((r) => ({
+      cveId,
+      source: r.source as ExploitReference['source'],
+      externalId: r.external_id,
+      title: r.title,
+      url: r.url,
+      maturity: r.maturity as ExploitMaturity,
+      publishedAt: r.published_at,
+    }));
+
+    let maturity: ExploitMaturity | null = null;
+    for (const e of exploits) {
+      if (
+        maturity === null ||
+        EXPLOIT_MATURITY_RANK[e.maturity] > EXPLOIT_MATURITY_RANK[maturity]
+      ) {
+        maturity = e.maturity;
+      }
+    }
+    return { exploits, exploitMaturity: maturity };
+  } catch {
+    return { exploits: [], exploitMaturity: null };
+  }
 }

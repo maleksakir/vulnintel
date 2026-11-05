@@ -50,6 +50,10 @@ export type {
 export type {
   EpssPatch,
   EpssQueueMessage,
+  ExploitMaturity,
+  ExploitQueueMessage,
+  ExploitReference,
+  ExploitSource,
   IngestSource,
   KevPatch,
   KevQueueMessage,

@@ -135,6 +135,23 @@ max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "watchlist-ingest-dlq"
 
+# Exploit-signal queue. pipelines/exploit.ts (kicked by the daily cron) fetches
+# ExploitDB + Metasploit, chunks the references, and enqueues here;
+# pipelines/exploitQueue.ts's consumer does the D1 upsert + cve_state rollup,
+# one message (~EXPLOIT_MESSAGE_CHUNK_SIZE refs) per invocation with its own
+# fresh 50-query budget. max_batch_size = 1, same one-message-per-invocation
+# guarantee as the others.
+[[queues.producers]]
+queue = "exploit-ingest"
+binding = "EXPLOIT_QUEUE"
+
+[[queues.consumers]]
+queue = "exploit-ingest"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "exploit-ingest-dlq"
+
 # NVD queue. NVD's 48h delta is variable (hundreds to low-thousands of
 # modified records per window, not a fixed daily snapshot like EPSS's
 # 250k-row CSV) and each CHANGED record's processRecord() call costs up to
@@ -295,6 +312,18 @@ max_batch_size = 1
 max_batch_timeout = 30
 max_retries = 3
 dead_letter_queue = "watchlist-ingest-dlq-staging"
+
+# Isolated from production's exploit-ingest queue, same reason as the others.
+[[env.staging.queues.producers]]
+queue = "exploit-ingest-staging"
+binding = "EXPLOIT_QUEUE"
+
+[[env.staging.queues.consumers]]
+queue = "exploit-ingest-staging"
+max_batch_size = 1
+max_batch_timeout = 30
+max_retries = 3
+dead_letter_queue = "exploit-ingest-dlq-staging"
 
 # Isolated from production's nvd-ingest queue for the same reason as
 # epss-ingest-staging above.

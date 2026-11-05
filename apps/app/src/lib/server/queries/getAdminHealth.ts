@@ -21,7 +21,7 @@ interface RateLimitRow {
   blocks: number;
 }
 
-const INGEST_SOURCES: IngestSource[] = ['NVD', 'MITRE', 'KEV', 'EPSS', 'AGING'];
+const INGEST_SOURCES: IngestSource[] = ['NVD', 'MITRE', 'KEV', 'EPSS', 'AGING', 'EXPLOIT'];
 
 export async function getAdminHealth(
   db: D1Database,
@@ -37,7 +37,7 @@ export async function getAdminHealth(
         `SELECT source, last_started_at, last_finished_at, last_status,
               records_processed, records_failed
        FROM ingest_run
-       WHERE source IN ('NVD','MITRE','KEV','EPSS','AGING')`,
+       WHERE source IN ('NVD','MITRE','KEV','EPSS','AGING','EXPLOIT')`,
       )
       .all<IngestRow>(),
 

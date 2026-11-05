@@ -40,10 +40,19 @@ export interface PriorityScoringFields {
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' | null;
 }
 
-type MatchScoringFields = Pick<
-  WatchlistMatch,
-  'kevListed' | 'epssPercentile' | 'cvssBase' | 'severity'
->;
+// Compile-time assertion that a WatchlistMatch's relevant fields structurally
+// satisfy PriorityScoringFields, so `computePriority(match)` stays type-safe
+// without an adapter. If WatchlistMatch's severity/epss/cvss/kev shapes ever
+// drift from the scoring contract, this line fails the build.
+type _MatchSatisfiesScoring =
+  Pick<
+    WatchlistMatch,
+    'kevListed' | 'epssPercentile' | 'cvssBase' | 'severity'
+  > extends PriorityScoringFields
+    ? true
+    : never;
+const _matchSatisfiesScoring: _MatchSatisfiesScoring = true;
+void _matchSatisfiesScoring;
 
 /**
  * Compute the deterministic priority. Returns null only when there is no

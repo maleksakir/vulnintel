@@ -158,6 +158,36 @@
   </details>
   {/if}
 
+  <!-- Public exploit signals — the differentiator: is there runnable exploit
+       code / a PoC in the wild, and where. -->
+  {#if data.detail.exploits?.length}
+    <section class="cve-section" aria-labelledby="exploit-heading">
+      <h2 id="exploit-heading" class="section-title">
+        Exploit Intelligence
+        <span class="exploit-verdict exploit-verdict--{data.detail.exploitMaturity}">
+          {data.detail.exploitMaturity === 'weaponized'
+            ? 'Public exploit available'
+            : data.detail.exploitMaturity === 'poc'
+              ? 'Proof-of-concept available'
+              : 'Detection available'}
+        </span>
+      </h2>
+      <ul class="exploit-list">
+        {#each data.detail.exploits as ex}
+          <li class="exploit-item">
+            <span class="exploit-src exploit-src--{ex.source}">{ex.source}</span>
+            {#if ex.url}
+              <a class="exploit-title" href={ex.url} target="_blank" rel="noopener">{ex.title ?? ex.externalId}</a>
+            {:else}
+              <span class="exploit-title">{ex.title ?? ex.externalId}</span>
+            {/if}
+            <span class="exploit-mat exploit-mat--{ex.maturity}">{ex.maturity}</span>
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+
   <!-- Description -->
   <section class="cve-section" aria-labelledby="desc-heading">
     <h2 id="desc-heading" class="section-title">Description</h2>
@@ -362,13 +392,42 @@
   .intel__signal--on { color: var(--color-brand-text); }
   .intel__signal--off { color: var(--color-text-tertiary); }
 
+  /* Exploit intelligence section */
+  .exploit-verdict {
+    font-family: var(--font-mono); font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-wide); text-transform: uppercase;
+    padding: 0.1rem 0.5rem; border-radius: var(--radius-sm); border: 1px solid transparent;
+  }
+  .exploit-verdict--weaponized { color: var(--color-critical-text); background: var(--color-critical-subtle); border-color: var(--color-critical-border); }
+  .exploit-verdict--poc { color: var(--color-high-text); background: var(--color-high-subtle); border-color: var(--color-high-border); }
+  .exploit-verdict--detection { color: var(--color-medium-text); background: var(--color-medium-subtle); border-color: var(--color-medium-border); }
+
+  .exploit-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+  .exploit-item {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-2_5) 0; border-bottom: 1px solid var(--color-border-subtle);
+    font-size: var(--text-sm); flex-wrap: wrap;
+  }
+  .exploit-item:last-child { border-bottom: none; }
+  .exploit-src {
+    flex: none; width: 6rem; font-family: var(--font-mono); font-size: var(--text-2xs);
+    text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-brand-text);
+  }
+  .exploit-title { flex: 1; min-width: 12rem; color: var(--color-text-primary); }
+  a.exploit-title:hover { color: var(--color-brand-text); }
+  .exploit-mat {
+    flex: none; font-family: var(--font-mono); font-size: var(--text-2xs);
+    text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary);
+  }
+  .exploit-mat--weaponized { color: var(--color-critical-text); }
+
   @media (max-width: 560px) {
     .intel { flex-direction: column; gap: var(--space-3); }
     .intel__score { width: 100%; flex-direction: row; gap: var(--space-3); padding: var(--space-3); }
   }
 
   .cve-section { margin-block-end: var(--space-8); }
-  .section-title { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-4); }
+  .section-title { display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-4); }
   .cve-description { font-size: var(--text-base); line-height: 1.7; color: var(--color-text-secondary); margin: 0; }
 
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: var(--layout-card-gap); margin-block-end: var(--space-8); }

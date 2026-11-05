@@ -4,7 +4,7 @@
  * Sections 5.2.1 – 5.2.7.
  */
 
-import type { Severity } from './cve.js';
+import type { ExploitMaturity, ExploitReference, IngestSource, Severity } from './cve.js';
 
 // ── Error envelope ────────────────────────────────────────────────────────────
 // Canonical error shape returned by both the WAF custom responses (Section 4.2.2)
@@ -79,6 +79,12 @@ export interface CveDetailResponse {
   cwes: { id: string; name: string; category: string | null }[];
   cpes: CpeRow[];
   references: { url: string; tags: string[] }[];
+  /** Public exploit/PoC signals for this CVE (migration 0015). Empty array
+   *  when none are known. `exploits` lists the individual references;
+   *  `exploitMaturity` is the single highest-weaponisation level across them
+   *  (or null when there are none), for a quick verdict. */
+  exploits: ExploitReference[];
+  exploitMaturity: ExploitMaturity | null;
 }
 
 // ── POST /api/search  (Section 5.2.3) ────────────────────────────────────────
@@ -201,7 +207,12 @@ export interface MetricsResponse {
 
 // ── GET /api/admin/health  (Section 5.2.7) ───────────────────────────────────
 
-export type IngestSource = 'NVD' | 'MITRE' | 'KEV' | 'EPSS' | 'AGING';
+// IngestSource is the single source of truth in cve.ts (it now includes
+// 'EXPLOIT'); imported at the top of this file and re-exported here so
+// HealthResponse.ingest stays aligned with the ingest pipeline's own source
+// list — the health dashboard surfaces every source the cron writes, with no
+// second list to drift out of sync.
+export type { IngestSource };
 
 export type IngestStaleness = 'green' | 'amber' | 'red';
 

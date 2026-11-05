@@ -4,6 +4,7 @@ import { CVE_ID_SHAPE } from '../adapters/mitre';
 import { fetchNvdDelta } from '../adapters/nvd';
 import { markIngestFinished, markIngestStarted } from '../lib/server/ingestRun';
 import type { Env } from '../types';
+import { runExploitProducer } from './exploit';
 import { NVD_QUEUE_MAX_BYTES, NVD_QUEUE_MAX_RECORDS } from './nvdProducer';
 
 const DELTA_WINDOW_MS = 48 * 60 * 60 * 1000; // 48-hour lookback for safety overlap
@@ -315,6 +316,18 @@ export async function runDailyFullDelta(env: Env, ctx: ExecutionContext): Promis
     epssFailed,
     epssError,
   );
+
+  // ── Exploit signals (ExploitDB + Metasploit) ──────────────────────────────
+  // Rides this cron slot (no free slot left), same piggyback as OSV/watchlist.
+  // It's a pure producer (external fetch → chunk → enqueue, zero D1), so it's
+  // safe inline here; runs LAST and is fully self-contained (own
+  // markIngestStarted/Finished + try/catch internally) so a slow or failing
+  // exploit feed can never block or fail the NVD/MITRE/EPSS work above.
+  try {
+    await runExploitProducer(env, ctx);
+  } catch {
+    /* best-effort — runExploitProducer already records its own FAILED status */
+  }
 
   ctx.waitUntil(
     Promise.resolve(

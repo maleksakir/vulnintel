@@ -1,5 +1,6 @@
 import type {
   EpssQueueMessage,
+  ExploitQueueMessage,
   KevQueueMessage,
   MitreCweQueueMessage,
   NvdQueueMessage,
@@ -10,6 +11,7 @@ import { processRecord } from './lib/server/processRecord';
 import { runAgingSweep } from './pipelines/aging';
 import { runDailyFullDelta } from './pipelines/daily';
 import { runEpssConsumer } from './pipelines/epssQueue';
+import { runExploitConsumer } from './pipelines/exploitQueue';
 import { runIpListPrune } from './pipelines/iplist';
 import { runKevFastLane } from './pipelines/kev';
 import { runKevConsumer } from './pipelines/kevQueue';
@@ -131,6 +133,18 @@ export default {
       for (const msg of batch.messages) {
         try {
           await runWatchlistConsumer(msg.body as WatchlistQueueMessage, env, ctx);
+          msg.ack();
+        } catch {
+          msg.retry();
+        }
+      }
+      return;
+    }
+
+    if (batch.queue.startsWith('exploit-ingest')) {
+      for (const msg of batch.messages) {
+        try {
+          await runExploitConsumer(msg.body as ExploitQueueMessage, env, ctx);
           msg.ack();
         } catch {
           msg.retry();

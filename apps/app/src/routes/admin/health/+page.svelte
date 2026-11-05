@@ -5,7 +5,7 @@
   interface Props { data: PageData }
   let { data }: Props = $props();
 
-  const SOURCES: IngestSource[] = ['NVD', 'MITRE', 'KEV', 'EPSS', 'AGING'];
+  const SOURCES: IngestSource[] = ['NVD', 'MITRE', 'KEV', 'EPSS', 'AGING', 'EXPLOIT'];
 
   const STALENESS_COLOR: Record<IngestStaleness, string> = {
     green: 'var(--color-status-green)',
