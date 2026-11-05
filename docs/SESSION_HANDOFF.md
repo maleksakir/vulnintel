@@ -1,26 +1,46 @@
-# Session Handoff — Production is LIVE with data
+# Session Handoff — Production is LIVE with data + exploit signals
 
 Threat-Lens is fully deployed, migrated, and serving live data on the
 Cloudflare free tier. Live: https://threat-lens-app.sakirm.workers.dev/
 
 Last verified: 2026-11-05. Dashboard renders real numbers (119,264 CVEs,
-11,448 critical, 460 KEV, mean EPSS 31.5%); every page returns 200.
+11,448 critical, 460 KEV, mean EPSS 31.5%); every page returns 200. The CVE
+detail page now shows a live Priority Assessment panel.
 
 ## Deployed state
 
-| Worker | Carries |
-|---|---|
-| threat-lens-app (`b7d5edb2`) | Operator Console redesign; rollup-only dashboard reads (no corpus scan on request path); graceful degrade-to-notice on D1 unavailability |
-| threat-lens-ingest (`b3fb51fd`) | FTS trigger fix, EPSS write-amplification fix, KEV per-message AND per-sendBatch-call size bounds, dashboard rollup builders |
+| Worker | Version | Carries |
+|---|---|---|
+| threat-lens-app | `0c2667c5` | Operator Console redesign; full responsive layout + hamburger nav; "Engineered by Sakir Malek" signature; CVE-detail Priority & Exploitation intelligence panel; rollup-only dashboard reads (no corpus scan on request path) |
+| threat-lens-ingest | `a46bc56a` | Exploit-signal producer→queue→consumer (ExploitDB + Metasploit); FTS trigger fix, EPSS write-amplification fix, KEV size bounds, dashboard rollup builders |
 
-Production D1: **all migrations 0001–0014 applied.** SSVC columns, watchlists,
-assets, remediation, the fixed FTS trigger (per-row cve_fts_delete removed),
-and the rollup tables all exist.
+Production D1: **all migrations 0001–0015 applied.** 0015 adds
+`cve_exploit_reference` + `exploit_count`/`exploit_maturity` rollup columns on
+`cve_state`, plus the EXPLOIT `ingest_run` seed row (shown on /admin/health).
+
+Queues provisioned: `exploit-ingest`, `exploit-ingest-dlq`,
+`exploit-ingest-staging`, `exploit-ingest-dlq-staging`.
+
+## Exploit signals — first data lands on the next 01:00 UTC cron
+
+The exploit producer rides the daily cron inline (no spare cron slot; same
+piggyback as OSV/watchlist). `cve_exploit_reference` is empty until the first
+01:00 UTC run after this deploy. After that, CVEs with a public ExploitDB
+entry or Metasploit module show an "Exploit Intelligence" section on their
+detail page and an `exploit_count`/`exploit_maturity` on `cve_state`.
+
+Design note: a ref for a not-yet-ingested (or aged-out) CVE is still persisted
+to `cve_exploit_reference`, but does NOT drive a `cve_state` rollup —
+`cve_state.cve_id` is FK-bound to `cve`, so `applyExploitBatch` INNER JOINs
+`cve` before rolling up. The rollup fills in once that CVE ingests.
 
 ## What this session fixed (newest first)
 
 | Commit | What |
 |---|---|
+| `8731af6` | Exploit-signal aggregation (ExploitDB + Metasploit): migration 0015, adapter/producer/consumer, applyExploitBatch rollup, CVE-detail exploit UI, +28 tests. Priority engine generalized so CVE detail + watchlist share one scoring model |
+| `370a9f1` | Priority & exploitation intelligence panel on CVE detail; empty-state UI fixes |
+| `4ea2a3f` | Full responsive layout (phone/tablet/laptop/desktop) + Sakir Malek signature |
 | `6efdbb8` | KEV sendBatch bounded by cumulative bytes (256KB/call cap), not just the 100-message count — was failing every run with "batch size … exceeds 256000" |
 | `3adc91e` | Dashboard never runs a full-corpus scan on a request; windowed views read only the rollups/snapshot, else show "warming up" |
 | `55ba95d` | Read-heavy SSR pages degrade to an offline notice instead of 500ing when D1 is capped |
