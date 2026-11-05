@@ -3,7 +3,6 @@ import type { CveDetailResponse } from '@threat-lens/contracts';
 import { adminPageGate } from '$lib/server/adminSession';
 import { computePriority, cveToScoringFields } from '$lib/server/priority';
 import { getCveDetail } from '$lib/server/queries/getCveDetail';
-import { getRiskAcceptance } from '$lib/server/queries/remediation';
 import type { PageServerLoad } from './$types';
 
 // Same `cve:<id>` key + 300s TTL as the /api/cve/[id] JSON route, so an SSR
@@ -47,11 +46,6 @@ export const load: PageServerLoad = async ({ params, url, platform, cookies }) =
   // the hottest page in the app, including on the cache-hit path.
   const adminView = adminPageGate(url, cookies, env?.ADMIN_BEARER);
 
-  // Risk acceptance is small, mutable, and NOT part of the cached CVE detail,
-  // so fetch it directly every load (one indexed single-row read) — in both
-  // the cache-hit and cache-miss paths below.
-  const riskAcceptance = adminView ? await getRiskAcceptance(db, cveId) : null;
-
   const cacheKey = `cve:${cveId}`;
   if (env.CACHE) {
     const cached = await env.CACHE.get<CveDetailResponse>(cacheKey, 'json');
@@ -61,7 +55,6 @@ export const load: PageServerLoad = async ({ params, url, platform, cookies }) =
       return {
         detail: cached,
         priority: computePriority(cveToScoringFields(cached)),
-        riskAcceptance,
         adminView,
       };
     }
@@ -81,7 +74,6 @@ export const load: PageServerLoad = async ({ params, url, platform, cookies }) =
   return {
     detail,
     priority: computePriority(cveToScoringFields(detail)),
-    riskAcceptance,
     adminView,
   };
 };

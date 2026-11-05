@@ -31,22 +31,13 @@ export type {
   MetricsResponse,
   MetricsSeries,
   MetricsWindow,
+  OsvAffectedPackageRow,
   SearchFilters,
   SearchRequest,
   SearchResponse,
   SearchResultItem,
+  SsvcBlock,
 } from './api.js';
-export type {
-  AssetComponentInput,
-  AssetComponentRow,
-  AssetCveRow,
-  AssetDetailResponse,
-  AssetListResponse,
-  AssetMatchVia,
-  AssetSummary,
-  CreateAssetRequest,
-  SbomImportResult,
-} from './asset.js';
 export type {
   EpssPatch,
   EpssQueueMessage,
@@ -74,10 +65,12 @@ export type {
 export type { EmbedFn } from './embed.js';
 export { EMBED_DIMENSIONS, EMBED_MAX_CHARS, EMBED_MODEL } from './embed.js';
 export type {
-  AcceptRiskRequest,
-  RiskAcceptance,
-  RiskAcceptanceListResponse,
-} from './remediation.js';
+  SbomComponentInput,
+  SbomComponentResult,
+  SbomCveMatch,
+  SbomMatchVia,
+  SbomScanResponse,
+} from './sbom.js';
 export type {
   CreateSubscriptionRequest,
   CreateWatchlistRequest,

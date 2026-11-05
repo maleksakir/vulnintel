@@ -14,7 +14,6 @@ export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'CVE_NOT_FOUND'
   | 'WATCHLIST_NOT_FOUND'
-  | 'ASSET_NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'RATE_LIMITED'
   | 'GLOBAL_QUOTA_EXHAUSTED'
@@ -60,6 +59,28 @@ export interface CpeRow {
 
 // ── GET /api/cve/:id  (Section 5.2.2) ────────────────────────────────────────
 
+/** One affected package from OSV/GHSA (migration 0007 `cve_osv_affected`).
+ *  OSV gives ecosystem-level affected/fixed version info that NVD CPE lacks —
+ *  the "which exact package version is fixed" signal. */
+export interface OsvAffectedPackageRow {
+  ecosystem: string;
+  packageName: string;
+  purl: string | null;
+  /** Comma-joined fixed versions OSV lists for this package, or null. */
+  fixedVersions: string | null;
+  /** Human-readable summary of the affected version ranges (e.g. ">=1.0 <1.4.2"),
+   *  derived from OSV `ranges_json`. Null when not expressible. */
+  rangeSummary: string | null;
+}
+
+/** CISA ADP SSVC decision, surfaced on the detail page (migration 0008). */
+export interface SsvcBlock {
+  exploitation: 'none' | 'poc' | 'active' | null;
+  automatable: 'yes' | 'no' | null;
+  technicalImpact: 'partial' | 'total' | null;
+  decidedAt: string | null; // ISO 8601
+}
+
 export interface CveDetailResponse {
   cveId: string;
   publishedAt: string; // ISO 8601 (converted from unix ms at API boundary)
@@ -76,9 +97,18 @@ export interface CveDetailResponse {
     epssPercentile: number | null;
     epssUpdatedAt: string | null;
   };
+  /** CISA ADP SSVC decision (exploitation / automatable / technical impact),
+   *  parsed from NVD. Null when NVD carries no SSVC decision for this CVE. */
+  ssvc: SsvcBlock | null;
   cwes: { id: string; name: string; category: string | null }[];
   cpes: CpeRow[];
+  /** OSV/GHSA affected packages with fixed versions + range summaries. Empty
+   *  when the CVE isn't linked to any package ecosystem. */
+  osvPackages: OsvAffectedPackageRow[];
   references: { url: string; tags: string[] }[];
+  /** Which upstream sources contributed data for this CVE, newest-seen first
+   *  (from cve_source_provenance) — the "where did this come from" trail. */
+  sources: { source: string; lastSeenAt: string }[];
   /** Public exploit/PoC signals for this CVE (migration 0015). Empty array
    *  when none are known. `exploits` lists the individual references;
    *  `exploitMaturity` is the single highest-weaponisation level across them
@@ -136,11 +166,23 @@ export interface AffectedProductsRequest {
 export interface AffectedProductRow {
   vendor: string;
   product: string;
-  versionRange: string; // Pretty-formatted range string
+  /** Number of distinct CVEs affecting this vendor/product. */
   cveCount: number;
+  /** Number of distinct affected versions recorded across those CVEs' CPEs
+   *  (counts explicit `version` values; range-only CPEs don't contribute a
+   *  discrete version). Gives a sense of how many releases are implicated. */
+  affectedVersionCount: number;
+  /** Number of those CVEs that are CISA-KEV-listed (actively exploited). */
+  kevCount: number;
+  /** The most-recently-PUBLISHED CVE for this product (by published_at), not
+   *  the lexicographically-greatest id. */
   latestCveId: string;
   latestPublishedAt: string; // ISO 8601
-  maxSeverity: Severity;
+  /** Highest CVSS base score across this product's CVEs (null if none have one). */
+  maxCvssBase: number | null;
+  /** Highest severity across this product's CVEs, ranked correctly (not a
+   *  lexicographic MAX). Null when no CVE carries a severity. */
+  maxSeverity: Severity | null;
 }
 
 export interface AffectedProductsResponse {

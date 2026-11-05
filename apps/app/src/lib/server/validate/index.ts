@@ -23,40 +23,40 @@ export function validateSearchRequest(body: unknown):
   const b = body as Record<string, unknown>;
   const errors: Record<string, string> = {};
 
-  const hasQuery = b['query'] !== undefined;
-  const hasSimilarTo = b['similarTo'] !== undefined;
+  const hasQuery = b.query !== undefined;
+  const hasSimilarTo = b.similarTo !== undefined;
 
   if (!hasQuery && !hasSimilarTo) {
-    errors['_root'] = 'One of "query" or "similarTo" is required';
+    errors._root = 'One of "query" or "similarTo" is required';
   }
 
   if (hasQuery && hasSimilarTo) {
-    errors['_root'] = '"query" and "similarTo" are mutually exclusive';
+    errors._root = '"query" and "similarTo" are mutually exclusive';
   }
 
   if (hasQuery) {
-    const q = b['query'];
+    const q = b.query;
     if (typeof q !== 'string' || q.length < 1 || q.length > 256) {
-      errors['query'] = 'Must be a string of 1–256 characters';
+      errors.query = 'Must be a string of 1–256 characters';
     }
   }
 
   if (hasSimilarTo) {
-    const s = b['similarTo'];
+    const s = b.similarTo;
     if (typeof s !== 'string' || !/^CVE-\d{4}-\d+$/i.test(s)) {
-      errors['similarTo'] = 'Must be a valid CVE ID (CVE-YYYY-NNNNN)';
+      errors.similarTo = 'Must be a valid CVE ID (CVE-YYYY-NNNNN)';
     }
   }
 
-  if (b['limit'] !== undefined) {
-    const lim = Number(b['limit']);
+  if (b.limit !== undefined) {
+    const lim = Number(b.limit);
     if (!Number.isInteger(lim) || lim < 1 || lim > 50) {
-      errors['limit'] = 'Must be an integer 1–50';
+      errors.limit = 'Must be an integer 1–50';
     }
   }
 
-  if (b['filters'] !== undefined) {
-    const fErr = validateFilters(b['filters']);
+  if (b.filters !== undefined) {
+    const fErr = validateFilters(b.filters);
     Object.assign(errors, fErr);
   }
 
@@ -65,10 +65,10 @@ export function validateSearchRequest(body: unknown):
   return {
     ok: true,
     value: {
-      ...(hasQuery && { query: b['query'] as string }),
-      ...(hasSimilarTo && { similarTo: b['similarTo'] as string }),
-      ...(b['filters'] !== undefined && { filters: b['filters'] as SearchFilters }),
-      ...(b['limit'] !== undefined && { limit: Number(b['limit']) }),
+      ...(hasQuery && { query: b.query as string }),
+      ...(hasSimilarTo && { similarTo: b.similarTo as string }),
+      ...(b.filters !== undefined && { filters: b.filters as SearchFilters }),
+      ...(b.limit !== undefined && { limit: Number(b.limit) }),
     },
   };
 }
@@ -76,33 +76,33 @@ export function validateSearchRequest(body: unknown):
 function validateFilters(f: unknown): Record<string, string> {
   const errors: Record<string, string> = {};
   if (typeof f !== 'object' || f === null) {
-    errors['filters'] = 'Must be an object';
+    errors.filters = 'Must be an object';
     return errors;
   }
 
   const filters = f as Record<string, unknown>;
   const validSeverities = new Set(['NONE', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']);
 
-  if (filters['severity'] !== undefined) {
+  if (filters.severity !== undefined) {
     if (
-      !Array.isArray(filters['severity']) ||
-      !filters['severity'].every((s: unknown) => typeof s === 'string' && validSeverities.has(s))
+      !Array.isArray(filters.severity) ||
+      !filters.severity.every((s: unknown) => typeof s === 'string' && validSeverities.has(s))
     ) {
       errors['filters.severity'] = 'Must be an array of severity strings';
     }
   }
 
-  if (filters['minCvss'] !== undefined) {
-    const v = Number(filters['minCvss']);
-    if (isNaN(v) || v < 0 || v > 10) {
+  if (filters.minCvss !== undefined) {
+    const v = Number(filters.minCvss);
+    if (Number.isNaN(v) || v < 0 || v > 10) {
       errors['filters.minCvss'] = 'Must be a number 0–10';
     }
   }
 
-  if (filters['publishedSince'] !== undefined) {
+  if (filters.publishedSince !== undefined) {
     if (
-      typeof filters['publishedSince'] !== 'string' ||
-      isNaN(Date.parse(filters['publishedSince']))
+      typeof filters.publishedSince !== 'string' ||
+      Number.isNaN(Date.parse(filters.publishedSince))
     ) {
       errors['filters.publishedSince'] = 'Must be a valid ISO date string';
     }
@@ -133,14 +133,14 @@ export function validateAffectedProductsParams(params: URLSearchParams):
   const limitStr = params.get('limit');
   const limit = limitStr !== null ? Number(limitStr) : 50;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    errors['limit'] = 'Must be an integer 1–100';
+    errors.limit = 'Must be an integer 1–100';
   }
 
   const minCvssStr = params.get('minCvss');
   if (minCvssStr !== null) {
     const v = Number(minCvssStr);
-    if (isNaN(v) || v < 0 || v > 10) {
-      errors['minCvss'] = 'Must be a number 0–10';
+    if (Number.isNaN(v) || v < 0 || v > 10) {
+      errors.minCvss = 'Must be a number 0–10';
     }
   }
 
@@ -272,72 +272,6 @@ export function validateCreateSubscription(
 
   if (Object.keys(errors).length > 0) return { ok: false, details: errors };
   return { ok: true, value: { vendor, product } };
-}
-
-export function validateAcceptRisk(
-  body: unknown,
-  now: number = Date.now(),
-): Validated<{ justification: string; expiresAtMs: number; acceptedBy: string | null }> {
-  if (typeof body !== 'object' || body === null) {
-    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
-  }
-  const b = body as Record<string, unknown>;
-  const errors: Record<string, string> = {};
-
-  const justification = typeof b.justification === 'string' ? b.justification.trim() : '';
-  if (justification.length < 1 || justification.length > NOTE_MAX) {
-    errors.justification = `Must be a string of 1–${NOTE_MAX} characters (a written reason is mandatory)`;
-  }
-
-  // Expiry is mandatory (DefectDojo model) and must be in the future.
-  let expiresAtMs = Number.NaN;
-  if (typeof b.expiresAt !== 'string' || Number.isNaN(Date.parse(b.expiresAt))) {
-    errors.expiresAt = 'Must be a valid ISO 8601 date-time';
-  } else {
-    expiresAtMs = Date.parse(b.expiresAt);
-    if (expiresAtMs <= now) {
-      errors.expiresAt = 'Must be in the future (risk acceptance cannot be open-ended)';
-    }
-  }
-
-  let acceptedBy: string | null = null;
-  if (b.acceptedBy !== undefined && b.acceptedBy !== null) {
-    if (typeof b.acceptedBy !== 'string' || b.acceptedBy.length > VENDOR_MAX) {
-      errors.acceptedBy = `Must be a string of at most ${VENDOR_MAX} characters`;
-    } else {
-      acceptedBy = b.acceptedBy.trim() || null;
-    }
-  }
-
-  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
-  return { ok: true, value: { justification, expiresAtMs, acceptedBy } };
-}
-
-export function validateCreateAsset(
-  body: unknown,
-): Validated<{ name: string; description?: string }> {
-  if (typeof body !== 'object' || body === null) {
-    return { ok: false, details: { _root: 'Request body must be a JSON object' } };
-  }
-  const b = body as Record<string, unknown>;
-  const errors: Record<string, string> = {};
-
-  const name = typeof b.name === 'string' ? b.name.trim() : '';
-  if (name.length < 1 || name.length > NAME_MAX) {
-    errors.name = `Must be a string of 1–${NAME_MAX} characters`;
-  }
-
-  let description: string | undefined;
-  if (b.description !== undefined && b.description !== null) {
-    if (typeof b.description !== 'string' || b.description.length > DESC_MAX) {
-      errors.description = `Must be a string of at most ${DESC_MAX} characters`;
-    } else {
-      description = b.description;
-    }
-  }
-
-  if (Object.keys(errors).length > 0) return { ok: false, details: errors };
-  return { ok: true, value: { name, ...(description !== undefined && { description }) } };
 }
 
 const WEBHOOK_KINDS = new Set(['generic', 'slack']);

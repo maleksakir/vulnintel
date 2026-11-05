@@ -3,6 +3,8 @@ import type {
   CveDetailResponse,
   ExploitMaturity,
   ExploitReference,
+  OsvAffectedPackageRow,
+  SsvcBlock,
 } from '@threat-lens/contracts';
 
 interface CveRow {
@@ -23,6 +25,10 @@ interface CveRow {
   epss_score: number | null;
   epss_percentile: number | null;
   epss_updated_at: number | null;
+  ssvc_exploitation: string | null;
+  ssvc_automatable: string | null;
+  ssvc_technical_impact: string | null;
+  ssvc_updated_at: number | null;
 }
 
 interface CweRow {
@@ -53,14 +59,15 @@ export async function getCveDetail(
   cveId: string,
   db: D1Database,
 ): Promise<CveDetailResponse | null> {
-  const [cveResult, cweResult, cpeResult, refResult] = await db.batch([
+  const [cveResult, cweResult, cpeResult, refResult, osvResult, srcResult] = await db.batch([
     db
       .prepare(
         `SELECT c.cve_id, c.published_at, c.last_modified_at, c.description,
               c.severity, c.cvss_version, c.cvss_vector, c.cvss_base,
               c.cvss_exploitability, c.cvss_impact,
               s.kev_listed, s.kev_date_added, s.kev_due_date, s.kev_required_action,
-              s.epss_score, s.epss_percentile, s.epss_updated_at
+              s.epss_score, s.epss_percentile, s.epss_updated_at,
+              s.ssvc_exploitation, s.ssvc_automatable, s.ssvc_technical_impact, s.ssvc_updated_at
        FROM cve c LEFT JOIN cve_state s USING (cve_id)
        WHERE c.cve_id = ?`,
       )
@@ -81,6 +88,18 @@ export async function getCveDetail(
       )
       .bind(cveId),
     db.prepare(`SELECT url, tags FROM cve_reference WHERE cve_id = ? LIMIT 200`).bind(cveId),
+    db
+      .prepare(
+        `SELECT ecosystem, package_name, purl, ranges_json, fixed_versions
+       FROM cve_osv_affected WHERE cve_id = ? ORDER BY ecosystem, package_name LIMIT 100`,
+      )
+      .bind(cveId),
+    db
+      .prepare(
+        `SELECT source, last_seen_at FROM cve_source_provenance
+       WHERE cve_id = ? ORDER BY last_seen_at DESC`,
+      )
+      .bind(cveId),
   ]);
 
   const row = (cveResult as D1Result<CveRow>).results[0];
@@ -115,6 +134,36 @@ export async function getCveDetail(
     tags: r.tags ? r.tags.split(',').filter(Boolean) : [],
   }));
 
+  const osvPackages: OsvAffectedPackageRow[] = (osvResult as D1Result<OsvDbRow>).results.map(
+    (o) => ({
+      ecosystem: o.ecosystem,
+      packageName: o.package_name,
+      purl: o.purl,
+      fixedVersions: o.fixed_versions,
+      rangeSummary: summarizeOsvRanges(o.ranges_json),
+    }),
+  );
+
+  const sources = (srcResult as D1Result<ProvenanceDbRow>).results.map((s) => ({
+    source: s.source,
+    lastSeenAt: new Date(s.last_seen_at).toISOString(),
+  }));
+
+  // SSVC: present only when NVD's CISA-ADP decision was parsed (any of the
+  // three points non-null). ssvc_updated_at alone doesn't count as "has SSVC".
+  const ssvc: SsvcBlock | null =
+    row.ssvc_exploitation !== null ||
+    row.ssvc_automatable !== null ||
+    row.ssvc_technical_impact !== null
+      ? {
+          exploitation: (row.ssvc_exploitation as SsvcBlock['exploitation']) ?? null,
+          automatable: (row.ssvc_automatable as SsvcBlock['automatable']) ?? null,
+          technicalImpact: (row.ssvc_technical_impact as SsvcBlock['technicalImpact']) ?? null,
+          decidedAt:
+            row.ssvc_updated_at !== null ? new Date(row.ssvc_updated_at).toISOString() : null,
+        }
+      : null;
+
   return {
     cveId: row.cve_id,
     publishedAt: new Date(row.published_at).toISOString(),
@@ -141,12 +190,62 @@ export async function getCveDetail(
       epssUpdatedAt:
         row.epss_updated_at !== null ? new Date(row.epss_updated_at).toISOString() : null,
     },
+    ssvc,
     cwes,
     cpes,
+    osvPackages,
     references: refs,
+    sources,
     exploits,
     exploitMaturity,
   };
+}
+
+interface OsvDbRow {
+  ecosystem: string;
+  package_name: string;
+  purl: string | null;
+  ranges_json: string;
+  fixed_versions: string | null;
+}
+
+interface ProvenanceDbRow {
+  source: string;
+  last_seen_at: number;
+}
+
+/**
+ * Turn OSV's `ranges_json` into a short human range summary like
+ * ">=1.0.0 <1.4.2" (or ">=1.0.0" / "<1.4.2"). OSV stores an array of range
+ * objects, each with `events` (introduced/fixed/last_affected). We render the
+ * FIRST range's introduced→fixed/last_affected bound, which covers the common
+ * single-range case; multi-range records fall back to showing the first.
+ * Returns null when nothing expressible is found (parse-tolerant).
+ */
+function summarizeOsvRanges(rangesJson: string): string | null {
+  try {
+    const ranges = JSON.parse(rangesJson) as Array<{
+      events?: Array<Record<string, string>>;
+    }>;
+    if (!Array.isArray(ranges) || ranges.length === 0) return null;
+    const events = ranges[0]?.events;
+    if (!Array.isArray(events)) return null;
+    let introduced: string | null = null;
+    let fixed: string | null = null;
+    let lastAffected: string | null = null;
+    for (const e of events) {
+      if (typeof e.introduced === 'string' && e.introduced !== '0') introduced = e.introduced;
+      if (typeof e.fixed === 'string') fixed = e.fixed;
+      if (typeof e.last_affected === 'string') lastAffected = e.last_affected;
+    }
+    const parts: string[] = [];
+    if (introduced) parts.push(`>=${introduced}`);
+    if (fixed) parts.push(`<${fixed}`);
+    else if (lastAffected) parts.push(`<=${lastAffected}`);
+    return parts.length > 0 ? parts.join(' ') : null;
+  } catch {
+    return null;
+  }
 }
 
 interface ExploitRefDbRow {

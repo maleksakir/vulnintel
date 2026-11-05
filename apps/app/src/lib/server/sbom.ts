@@ -1,11 +1,11 @@
-import type { AssetComponentInput } from '@threat-lens/contracts';
+import type { SbomComponentInput } from '@threat-lens/contracts';
 
 // CycloneDX SBOM parsing + PURL handling. Pure, no I/O — the actual matching
-// against cve_osv_affected / cpe lives in assetMutations.ts.
+// against cve_osv_affected / cpe lives in sbomMatch.ts.
 
-// Bound a single import. This is the hard ceiling on the work importSbom does
-// in one request; see that function's query-budget comment for how 500
-// components maps to a bounded D1 query count under the 50-per-invocation cap.
+// Bound a single scan. This is the hard ceiling on the work a scan does in one
+// request; see sbomMatch.ts's query-budget comment for how 500 components maps
+// to a bounded D1 query count under the 50-per-invocation cap.
 export const MAX_SBOM_COMPONENTS = 500;
 
 /**
@@ -70,7 +70,7 @@ interface CycloneDxBom {
 export interface ParsedSbom {
   ok: boolean;
   error?: string;
-  components: AssetComponentInput[];
+  components: SbomComponentInput[];
   /** Components present in the SBOM but unusable (no name) — counted, skipped. */
   skipped: number;
 }
@@ -99,7 +99,7 @@ export function parseCycloneDxSbom(raw: unknown): ParsedSbom {
     return { ok: false, error: 'SBOM has no components array', components: [], skipped: 0 };
   }
 
-  const out: AssetComponentInput[] = [];
+  const out: SbomComponentInput[] = [];
   let skipped = 0;
 
   for (const c of bom.components as CycloneDxComponent[]) {

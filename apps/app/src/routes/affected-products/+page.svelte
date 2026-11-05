@@ -24,7 +24,7 @@
   <PageHeader
     eyebrow="EXPOSURE SURFACE"
     title="Affected Products"
-    subtitle="Vendors and products ranked by the CVEs that name them, straight from NVD CPE data."
+    subtitle="Vendors and products ranked by the CVEs that name them. Severity is ranked correctly, the latest CVE is the most recently published, and KEV counts flag actively-exploited exposure."
   />
 
   <form class="filter-bar" method="GET">
@@ -71,6 +71,9 @@
             <th>Vendor</th>
             <th>Product</th>
             <th>CVEs</th>
+            <th>Versions</th>
+            <th>KEV</th>
+            <th>Max CVSS</th>
             <th>Max Severity</th>
             <th>Latest CVE</th>
             <th>Last Published</th>
@@ -89,6 +92,9 @@
                   )}&product={encodeURIComponent(row.product)}">{row.product}</a>
               </td>
               <td class="mono">{row.cveCount.toLocaleString()}</td>
+              <td class="mono">{row.affectedVersionCount > 0 ? row.affectedVersionCount.toLocaleString() : '—'}</td>
+              <td>{#if row.kevCount > 0}<span class="kev-chip">{row.kevCount}</span>{:else}<span class="dim">—</span>{/if}</td>
+              <td class="mono">{row.maxCvssBase !== null ? row.maxCvssBase.toFixed(1) : '—'}</td>
               <td><SeverityBadge severity={row.maxSeverity} variant="text" /></td>
               <td><a class="cve-link" href="/cve/{row.latestCveId}">{row.latestCveId}</a></td>
               <td class="mono">{isoToDate(row.latestPublishedAt)}</td>
@@ -166,4 +172,15 @@
   .pagination {
     margin-block-start: var(--space-6);
   }
+  .kev-chip {
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    font-weight: var(--weight-semibold);
+    color: var(--color-kev-text);
+    background: var(--color-kev-subtle);
+    border: 1px solid var(--color-kev);
+    padding: 0.1rem 0.4rem;
+    border-radius: var(--radius-sm);
+  }
+  .dim { color: var(--color-text-tertiary); }
 </style>

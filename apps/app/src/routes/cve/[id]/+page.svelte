@@ -1,6 +1,4 @@
 <script lang="ts">
-  import { invalidateAll } from '$app/navigation';
-  import { adminFetch, getAdminToken, setAdminToken } from '$lib/client/adminToken';
   import SeverityBadge from '$lib/ui/SeverityBadge.svelte';
   import type { PageData } from './$types';
 
@@ -9,56 +7,6 @@
 
   function isoToDate(iso: string | null) {
     return iso ? new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '—';
-  }
-
-  // --- Risk acceptance (remediation) ---
-  const acceptance = $derived(data.riskAcceptance);
-  let adminToken = $state('');
-  let justification = $state('');
-  let expiresAt = $state(''); // yyyy-mm-dd from a date input
-  let busy = $state(false);
-  let errorMsg = $state('');
-
-  $effect(() => {
-    adminToken = getAdminToken();
-  });
-  function saveToken() {
-    setAdminToken(adminToken.trim());
-  }
-
-  async function accept(e: Event) {
-    e.preventDefault();
-    errorMsg = '';
-    if (!justification.trim() || !expiresAt) return;
-    busy = true;
-    try {
-      // The date input gives a local date; send end-of-day UTC ISO.
-      const iso = new Date(`${expiresAt}T23:59:59Z`).toISOString();
-      await adminFetch(`/api/remediation/${data.detail.cveId}`, 'PUT', {
-        justification: justification.trim(),
-        expiresAt: iso,
-      });
-      justification = '';
-      expiresAt = '';
-      await invalidateAll();
-    } catch (err) {
-      errorMsg = err instanceof Error ? err.message : 'Failed to accept risk';
-    } finally {
-      busy = false;
-    }
-  }
-
-  async function revoke() {
-    errorMsg = '';
-    busy = true;
-    try {
-      await adminFetch(`/api/remediation/${data.detail.cveId}`, 'DELETE');
-      await invalidateAll();
-    } catch (err) {
-      errorMsg = err instanceof Error ? err.message : 'Failed to revoke';
-    } finally {
-      busy = false;
-    }
   }
 </script>
 
@@ -122,40 +70,28 @@
     banner and the accept/revoke panel only render for a signed-in operator
     (`?token=<ADMIN_BEARER>`). See src/lib/server/adminSession.ts.
   -->
-  {#if data.adminView}
-  {#if acceptance && acceptance.active}
-    <div class="risk-banner" role="status">
-      <div>
-        <strong>Risk accepted</strong> until {isoToDate(acceptance.expiresAt)}{acceptance.acceptedBy ? ` · by ${acceptance.acceptedBy}` : ''}
-        <p class="risk-just">{acceptance.justification}</p>
+  <!-- CISA SSVC decision — the agency's own "act now / track" stakeholder
+       triage. Shown when NVD carries a CISA-ADP SSVC decision. -->
+  {#if data.detail.ssvc}
+    {@const s = data.detail.ssvc}
+    <section class="ssvc" aria-label="CISA SSVC decision">
+      <h2 class="ssvc__heading">CISA SSVC Decision</h2>
+      <div class="ssvc__grid">
+        <div class="ssvc__point ssvc__point--{s.exploitation === 'active' ? 'hot' : s.exploitation === 'poc' ? 'warm' : 'cool'}">
+          <span class="ssvc__label">Exploitation</span>
+          <span class="ssvc__value">{s.exploitation ?? '—'}</span>
+        </div>
+        <div class="ssvc__point ssvc__point--{s.automatable === 'yes' ? 'hot' : 'cool'}">
+          <span class="ssvc__label">Automatable</span>
+          <span class="ssvc__value">{s.automatable ?? '—'}</span>
+        </div>
+        <div class="ssvc__point ssvc__point--{s.technicalImpact === 'total' ? 'hot' : 'cool'}">
+          <span class="ssvc__label">Technical Impact</span>
+          <span class="ssvc__value">{s.technicalImpact ?? '—'}</span>
+        </div>
       </div>
-      <button class="btn-revoke" type="button" disabled={busy} onclick={revoke}>Revoke</button>
-    </div>
-  {/if}
-
-  <details class="admin-panel risk-panel">
-    <summary>{acceptance?.active ? 'Extend / change risk acceptance' : 'Accept risk for this CVE'}</summary>
-    <div class="admin-body">
-      <label class="field">
-        <span class="field__label">Admin token</span>
-        <input class="field__input" type="password" bind:value={adminToken} onblur={saveToken} placeholder="ADMIN_BEARER — this tab only" autocomplete="off" />
-      </label>
-      <form class="risk-form" onsubmit={accept}>
-        <label class="field field--grow">
-          <span class="field__label">Justification (required)</span>
-          <input class="field__input" bind:value={justification} maxlength="2000" placeholder="e.g. not reachable in our deployment; compensating control X" />
-        </label>
-        <label class="field">
-          <span class="field__label">Expires (required)</span>
-          <input class="field__input" type="date" bind:value={expiresAt} />
-        </label>
-        <button class="btn-primary" type="submit" disabled={busy || !justification.trim() || !expiresAt}>
-          {acceptance?.active ? 'Update' : 'Accept'}
-        </button>
-      </form>
-      {#if errorMsg}<p class="risk-error" role="alert">{errorMsg}</p>{/if}
-    </div>
-  </details>
+      {#if s.decidedAt}<p class="ssvc__date">Decided {isoToDate(s.decidedAt)}</p>{/if}
+    </section>
   {/if}
 
   <!-- Public exploit signals — the differentiator: is there runnable exploit
@@ -297,6 +233,37 @@
     </section>
   {/if}
 
+  <!-- OSV / GHSA affected packages — ecosystem-level affected & fixed
+       versions that NVD CPE doesn't carry. The "upgrade to X to fix it"
+       signal, per package manager. -->
+  {#if data.detail.osvPackages.length > 0}
+    <section class="cve-section" aria-labelledby="osv-heading">
+      <h2 id="osv-heading" class="section-title">Affected Packages (OSV)</h2>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Ecosystem</th>
+              <th>Package</th>
+              <th>Affected range</th>
+              <th>Fixed in</th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each data.detail.osvPackages as pkg (pkg.ecosystem + pkg.packageName)}
+              <tr>
+                <td><span class="eco-chip">{pkg.ecosystem}</span></td>
+                <td class="mono">{pkg.packageName}</td>
+                <td class="mono">{pkg.rangeSummary ?? '—'}</td>
+                <td class="mono osv-fixed">{pkg.fixedVersions ?? '—'}</td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  {/if}
+
   <!-- References -->
   {#if data.detail.references.length > 0}
     <section class="cve-section" aria-labelledby="ref-heading">
@@ -312,6 +279,22 @@
         {/each}
       </ul>
     </section>
+  {/if}
+
+  <!-- Data provenance — which upstream sources contributed to this record.
+       The "where did this come from" trail that a raw NVD view doesn't give. -->
+  {#if data.detail.sources.length > 0}
+    <footer class="provenance">
+      <span class="provenance__label">Sources</span>
+      <ul class="provenance__list" role="list">
+        {#each data.detail.sources as src (src.source)}
+          <li class="provenance__item">
+            <span class="provenance__src">{src.source}</span>
+            <span class="provenance__seen">updated {isoToDate(src.lastSeenAt)}</span>
+          </li>
+        {/each}
+      </ul>
+    </footer>
   {/if}
 </div>
 
@@ -458,27 +441,33 @@
   .ref-url:hover { color: var(--color-brand-hover); }
   .ref-tag { font-family: var(--font-mono); font-size: var(--text-2xs); color: var(--color-text-tertiary); background: var(--color-surface-elevated); padding: 0.125rem 0.375rem; border-radius: var(--radius-sm); flex-shrink: 0; text-transform: uppercase; letter-spacing: var(--tracking-wide); }
 
-  .risk-banner { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); padding: var(--space-3) var(--space-4); margin-block-end: var(--space-6); background: var(--color-kev-subtle); border: 1px solid var(--color-kev-border, var(--color-critical-border)); border-radius: var(--radius-md); font-size: var(--text-sm); color: var(--color-text-secondary); }
-  .risk-banner strong { color: var(--color-kev-text); }
-  .risk-just { margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--color-text-tertiary); }
-  .risk-panel { margin-block-end: var(--space-6); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-surface-raised); }
-  .risk-panel summary { padding: var(--space-2_5) var(--space-4); font-family: var(--font-mono); font-size: var(--text-xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; color: var(--color-text-secondary); cursor: pointer; }
-  .risk-panel summary:hover { color: var(--color-brand-text); }
-  .admin-body { padding: 0 var(--space-4) var(--space-4); display: flex; flex-direction: column; gap: var(--space-3); }
-  .risk-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
-  .field { display: flex; flex-direction: column; gap: var(--space-1); min-width: 10rem; }
-  .field--grow { flex: 1; min-width: 16rem; }
-  .field__label { font-size: var(--text-xs); color: var(--color-text-tertiary); }
-  .field__input { padding: var(--space-2) var(--space-3); background: var(--color-surface-sunken); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); color: var(--color-text-primary); font-size: var(--text-sm); outline: none; }
-  .field__input:focus { border-color: var(--color-brand-border); }
-  .btn-primary { padding: var(--space-2) var(--space-4); background: var(--color-brand-subtle); color: var(--color-brand-text); border: 1px solid var(--color-brand-border); border-radius: var(--radius-md); font-family: var(--font-mono); font-size: var(--text-sm); font-weight: var(--weight-medium); white-space: nowrap; transition: var(--transition-colors), box-shadow var(--duration-fast) var(--ease-out); }
-  .btn-primary:hover:not(:disabled) { border-color: var(--color-brand-default); box-shadow: var(--glow-accent); }
-  .btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-  .btn-revoke { padding: 2px var(--space-2); font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-critical-text); background: transparent; border: 1px solid var(--color-critical-border); border-radius: var(--radius-sm); flex-shrink: 0; }
-  .btn-revoke:hover:not(:disabled) { background: var(--color-critical-subtle); }
-  .risk-error { font-size: var(--text-sm); color: var(--color-critical-text); margin: 0; }
+  /* CISA SSVC decision panel */
+  .ssvc { margin-block-end: var(--space-8); }
+  .ssvc__heading { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-3); }
+  .ssvc__grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); }
+  .ssvc__point { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border-default); border-radius: var(--radius-md); background: var(--color-surface-raised); }
+  .ssvc__label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); }
+  .ssvc__value { font-size: var(--text-lg); font-weight: var(--weight-semibold); text-transform: capitalize; color: var(--color-text-primary); }
+  .ssvc__point--hot { border-color: var(--color-critical-border); }
+  .ssvc__point--hot .ssvc__value { color: var(--color-critical-text); }
+  .ssvc__point--warm { border-color: var(--color-high-border); }
+  .ssvc__point--warm .ssvc__value { color: var(--color-high-text); }
+  .ssvc__date { font-size: var(--text-xs); color: var(--color-text-tertiary); margin: var(--space-2) 0 0; }
+
+  /* OSV affected packages */
+  .eco-chip { font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-brand-text); background: var(--color-brand-subtle); padding: 0.1rem 0.4rem; border-radius: var(--radius-sm); }
+  .osv-fixed { color: var(--color-low-text); }
+
+  /* Data provenance footer */
+  .provenance { display: flex; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; margin-top: var(--space-4); padding-top: var(--space-4); border-top: 1px solid var(--color-border-subtle); }
+  .provenance__label { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); }
+  .provenance__list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .provenance__item { display: inline-flex; align-items: baseline; gap: var(--space-1); font-size: var(--text-xs); background: var(--color-surface-elevated); padding: 0.15rem 0.5rem; border-radius: var(--radius-sm); }
+  .provenance__src { font-family: var(--font-mono); color: var(--color-text-secondary); }
+  .provenance__seen { color: var(--color-text-tertiary); }
 
   @media (max-width: 700px) {
     .two-col { grid-template-columns: 1fr; }
+    .ssvc__grid { grid-template-columns: 1fr; }
   }
 </style>

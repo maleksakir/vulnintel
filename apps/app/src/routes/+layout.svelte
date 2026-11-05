@@ -56,9 +56,8 @@
       match: (p: string) => p.startsWith('/affected-products'),
     },
     { href: '/threat-intel', label: 'Threat Intel', match: (p: string) => p.startsWith('/threat-intel') },
+    { href: '/sbom', label: 'SBOM Scan', match: (p: string) => p.startsWith('/sbom') },
     { href: '/watchlists', label: 'Watchlists', match: (p: string) => p.startsWith('/watchlists') },
-    { href: '/assets', label: 'Assets', match: (p: string) => p.startsWith('/assets') },
-    { href: '/remediation', label: 'Remediation', match: (p: string) => p.startsWith('/remediation') },
   ];
 
   // --- Toast region (§2.4) ---
@@ -433,8 +432,15 @@
   }
 
   .site-main {
-    flex: 1;
-    min-height: calc(100dvh - var(--layout-nav-height));
+    /* flex:1 fills the remaining column height so the footer sits at the
+       bottom on short pages (the root flex column is set on <body> in
+       app.css). We intentionally do NOT set a min-height here: the old
+       `min-height: calc(100dvh - nav-height)` made main nearly a full
+       viewport tall on its own, so the footer + its margin were appended
+       BELOW that and overshot the viewport — the blank band under the
+       footer. flex:1 against a 100dvh flex-column body is the correct
+       sticky-footer mechanism. */
+    flex: 1 0 auto;
     max-width: calc(var(--layout-content-max) + var(--layout-page-gutter) * 2);
     width: 100%;
     margin-inline: auto;

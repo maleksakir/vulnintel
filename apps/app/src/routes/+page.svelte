@@ -73,6 +73,33 @@
     </div>
   </header>
 
+  <!-- Quick actions — orient a first-time visitor on what the platform does:
+       look a CVE up, scan a dependency manifest, or explore product exposure.
+       This is the "why this over NVD" signal, right at the top. -->
+  <nav class="quick-actions" aria-label="Primary actions">
+    <a class="qa" href="/search">
+      <span class="qa__icon" aria-hidden="true">⌕</span>
+      <span class="qa__body">
+        <span class="qa__title">Search CVEs</span>
+        <span class="qa__desc">Full-text + semantic across {fmt(data.kpis.totalCves)} CVEs</span>
+      </span>
+    </a>
+    <a class="qa qa--accent" href="/sbom">
+      <span class="qa__icon" aria-hidden="true">⬆</span>
+      <span class="qa__body">
+        <span class="qa__title">Scan an SBOM</span>
+        <span class="qa__desc">Upload a CycloneDX file, see affected dependencies</span>
+      </span>
+    </a>
+    <a class="qa" href="/affected-products">
+      <span class="qa__icon" aria-hidden="true">▤</span>
+      <span class="qa__body">
+        <span class="qa__title">Affected Products</span>
+        <span class="qa__desc">Vendor · product · version exposure surface</span>
+      </span>
+    </a>
+  </nav>
+
   {#if data.dataError}
     <DataOfflineNotice what="Dashboard telemetry" />
   {:else if warmingUp}
@@ -252,6 +279,33 @@
   }
   .warming strong { display: block; margin-bottom: 0.2rem; font-size: var(--text-sm); }
   .warming p { margin: 0; font-size: var(--text-xs); line-height: var(--leading-snug); color: var(--color-text-secondary); }
+
+  /* Quick actions */
+  .quick-actions {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: var(--layout-card-gap); margin-block-end: var(--layout-section-gap);
+  }
+  .qa {
+    display: flex; align-items: center; gap: var(--space-3);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border-default); border-radius: var(--radius-lg);
+    background: var(--color-surface-raised); text-decoration: none;
+    transition: var(--transition-colors), var(--transition-transform), box-shadow var(--duration-fast) var(--ease-out);
+  }
+  .qa:hover { transform: translateY(-2px); border-color: var(--color-brand-border); box-shadow: var(--glow-accent); text-decoration: none; }
+  .qa--accent { border-color: var(--color-brand-border); background: linear-gradient(135deg, var(--color-brand-subtle), var(--color-surface-raised) 70%); }
+  .qa__icon {
+    flex: none; width: 2.25rem; height: 2.25rem; display: flex; align-items: center; justify-content: center;
+    font-size: var(--text-lg); color: var(--color-brand-text);
+    background: var(--color-surface-sunken); border: 1px solid var(--color-border-default); border-radius: var(--radius-md);
+  }
+  .qa__body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .qa__title { font-weight: var(--weight-semibold); color: var(--color-text-primary); font-size: var(--text-sm); }
+  .qa__desc { font-size: var(--text-xs); color: var(--color-text-tertiary); }
+
+  @media (max-width: 900px) {
+    .quick-actions { grid-template-columns: 1fr; }
+  }
 
   .kpi-grid {
     display: grid; grid-template-columns: repeat(4, 1fr);
