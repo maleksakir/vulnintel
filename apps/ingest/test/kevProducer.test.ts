@@ -1,7 +1,7 @@
 import { createExecutionContext, waitOnExecutionContext } from 'cloudflare:test';
 import type { KevPatch, KevQueueMessage } from '@threat-lens/contracts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { chunkKevPatches, runKevFastLane } from '../src/pipelines/kev';
+import { chunkKevPatches, groupForSendBatch, runKevFastLane } from '../src/pipelines/kev';
 import { spyOnBindings, testEnv, useCleanBindings } from './helpers';
 
 // KEV queue PRODUCER coverage (pipelines/kev.ts). The fix's whole point:
@@ -217,5 +217,85 @@ describe('chunkKevPatches message sizing', () => {
 
   it('an empty catalog produces no messages', () => {
     expect(chunkKevPatches([])).toEqual({ messages: [], oversized: [] });
+  });
+});
+
+describe('groupForSendBatch cumulative-size packing', () => {
+  // Cloudflare Queues' sendBatch() rejects a call whose messages sum to over
+  // 256,000 bytes, independently of the per-message cap. Every KEV run in
+  // production failed with "batch size of 398286 bytes exceeds limit of
+  // 256000" because the old loop sliced by message COUNT only and packed
+  // several ~100KB messages into one call. groupForSendBatch bounds each call
+  // by BOTH caps.
+  const SENDBATCH_LIMIT = 256_000;
+
+  function msgBytes(msg: KevPatch[]): number {
+    return new TextEncoder().encode(JSON.stringify({ patches: msg })).length;
+  }
+
+  /** A message of roughly `kb` kilobytes: one patch with a padded action. */
+  function bigMessage(kb: number): KevPatch[] {
+    return [
+      {
+        cveId: 'CVE-2026-00001',
+        kevDateAdded: Date.UTC(2026, 0, 1),
+        kevDueDate: Date.UTC(2026, 0, 21),
+        kevRequiredAction: 'R'.repeat(kb * 1024),
+      },
+    ];
+  }
+
+  it('keeps every sendBatch group under the 256KB cumulative limit', () => {
+    // Five ~90KB messages = ~450KB total; must split into multiple calls.
+    const messages = Array.from({ length: 5 }, () => bigMessage(90));
+    const groups = groupForSendBatch(messages);
+
+    expect(groups.length).toBeGreaterThan(1);
+    for (const g of groups) {
+      const total = g.reduce((n, m) => n + msgBytes(m), 0);
+      expect(total).toBeLessThan(SENDBATCH_LIMIT);
+    }
+    // Nothing dropped: every message lands in exactly one group.
+    expect(groups.reduce((n, g) => n + g.length, 0)).toBe(5);
+  });
+
+  it('caps a group at 100 messages even when they are tiny', () => {
+    const messages = Array.from({ length: 250 }, (_, i) => [
+      {
+        cveId: `CVE-2026-${String(i).padStart(5, '0')}`,
+        kevDateAdded: 0,
+        kevDueDate: 0,
+        kevRequiredAction: 'x',
+      },
+    ]);
+    const groups = groupForSendBatch(messages);
+    for (const g of groups) {
+      expect(g.length).toBeLessThanOrEqual(100);
+    }
+    expect(groups.reduce((n, g) => n + g.length, 0)).toBe(250);
+  });
+
+  it('puts the realistic full catalog in a single call', () => {
+    // ~1,800 patches at ~375 bytes chunk to ~7 messages of ~100KB… wait, no:
+    // chunkKevPatches caps each message at 100KB, so the whole catalog is a
+    // few hundred KB. That is >256KB total, so it legitimately splits — the
+    // point is only that it splits CORRECTLY, never exceeding a call budget.
+    const patches = Array.from({ length: 1800 }, (_, i) => ({
+      cveId: `CVE-2026-${String(i).padStart(5, '0')}`,
+      kevDateAdded: 0,
+      kevDueDate: 0,
+      kevRequiredAction: 'R'.repeat(300),
+    }));
+    const { messages } = chunkKevPatches(patches);
+    const groups = groupForSendBatch(messages);
+    for (const g of groups) {
+      expect(g.reduce((n, m) => n + msgBytes(m), 0)).toBeLessThan(SENDBATCH_LIMIT);
+      expect(g.length).toBeLessThanOrEqual(100);
+    }
+    expect(groups.reduce((n, g) => n + g.flat().length, 0)).toBe(1800);
+  });
+
+  it('an empty message list produces no groups', () => {
+    expect(groupForSendBatch([])).toEqual([]);
   });
 });

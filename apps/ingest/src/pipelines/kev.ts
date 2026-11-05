@@ -69,12 +69,46 @@ export function chunkKevPatches(patches: KevPatch[]): {
 
   return { messages, oversized };
 }
-// Cloudflare Queues' sendBatch() caps at 100 messages per call. At ~1,800
-// catalog entries and ~375 bytes each, size-aware chunking yields ~7 messages,
-// so one call suffices today; this loop is defensive against the catalog
-// growing (same reasoning as the MITRE/OSV sendBatch loops elsewhere in this
-// worker).
+// Cloudflare Queues' sendBatch() has TWO independent caps: at most 100
+// messages per call, AND at most 256,000 bytes TOTAL across all messages in
+// the call. The per-MESSAGE byte budget above (KEV_QUEUE_MAX_BYTES, 100KB)
+// does not bound the per-CALL total — three 100KB messages in one sendBatch
+// is 300KB and is rejected with "batch size of N bytes exceeds limit of
+// 256000", which is exactly how every KEV run failed in production
+// (2026-11-05). Slices must therefore be packed by BOTH bounds.
 const QUEUES_SENDBATCH_MAX_MESSAGES = 100;
+// Cumulative byte cap per sendBatch call, with headroom under the hard
+// 256,000 so the per-message wrapper/envelope overhead the platform adds
+// can't tip a slice over.
+const QUEUES_SENDBATCH_MAX_BYTES = 200_000;
+
+/**
+ * Pack pre-chunked messages into sendBatch-sized groups bounded by BOTH the
+ * 100-message cap and the ~256KB cumulative-byte cap. Each inner group is one
+ * sendBatch() call.
+ */
+export function groupForSendBatch(messages: KevPatch[][]): KevPatch[][][] {
+  const groups: KevPatch[][][] = [];
+  let current: KevPatch[][] = [];
+  let currentBytes = 0;
+
+  for (const msg of messages) {
+    const msgBytes = byteLength(JSON.stringify({ patches: msg }));
+    if (
+      current.length >= QUEUES_SENDBATCH_MAX_MESSAGES ||
+      (current.length > 0 && currentBytes + msgBytes > QUEUES_SENDBATCH_MAX_BYTES)
+    ) {
+      groups.push(current);
+      current = [];
+      currentBytes = 0;
+    }
+    current.push(msg);
+    currentBytes += msgBytes;
+  }
+  if (current.length > 0) groups.push(current);
+
+  return groups;
+}
 
 /**
  * KEV fast-lane (the every-6-hours cron slot) — PRODUCER ONLY.
@@ -119,15 +153,15 @@ export async function runKevFastLane(env: Env, ctx: ExecutionContext): Promise<v
       failed += oversized.length;
       lastError = `${oversized.length} KEV patch(es) exceeded the per-message byte budget (first: ${oversized[0]?.cveId})`;
     }
-    const messages = chunks.map((patches) => ({ body: { patches } }));
-
-    for (let i = 0; i < messages.length; i += QUEUES_SENDBATCH_MAX_MESSAGES) {
-      const slice = messages.slice(i, i + QUEUES_SENDBATCH_MAX_MESSAGES);
+    // Pack chunks into sendBatch groups bounded by BOTH the 100-message and
+    // the ~256KB cumulative-byte caps (see groupForSendBatch).
+    for (const group of groupForSendBatch(chunks)) {
+      const slice = group.map((patches) => ({ body: { patches } }));
       try {
         await env.KEV_QUEUE.sendBatch(slice);
-        enqueued += slice.reduce((n, m) => n + m.body.patches.length, 0);
+        enqueued += group.reduce((n, patches) => n + patches.length, 0);
       } catch (err) {
-        failed += slice.reduce((n, m) => n + m.body.patches.length, 0);
+        failed += group.reduce((n, patches) => n + patches.length, 0);
         lastError = String(err);
       }
     }
