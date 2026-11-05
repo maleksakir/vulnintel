@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import type { CveDetailResponse } from '@threat-lens/contracts';
 import { adminPageGate } from '$lib/server/adminSession';
+import { computePriority, cveToScoringFields } from '$lib/server/priority';
 import { getCveDetail } from '$lib/server/queries/getCveDetail';
 import { getRiskAcceptance } from '$lib/server/queries/remediation';
 import type { PageServerLoad } from './$types';
@@ -54,7 +55,16 @@ export const load: PageServerLoad = async ({ params, url, platform, cookies }) =
   const cacheKey = `cve:${cveId}`;
   if (env.CACHE) {
     const cached = await env.CACHE.get<CveDetailResponse>(cacheKey, 'json');
-    if (cached !== null) return { detail: cached, riskAcceptance, adminView };
+    if (cached !== null) {
+      // Priority is a pure function of the detail fields (zero AI/D1), so it's
+      // computed at read time whether the detail came from cache or D1.
+      return {
+        detail: cached,
+        priority: computePriority(cveToScoringFields(cached)),
+        riskAcceptance,
+        adminView,
+      };
+    }
   }
 
   const detail = await getCveDetail(cveId, db);
@@ -68,5 +78,10 @@ export const load: PageServerLoad = async ({ params, url, platform, cookies }) =
     );
   }
 
-  return { detail, riskAcceptance, adminView };
+  return {
+    detail,
+    priority: computePriority(cveToScoringFields(detail)),
+    riskAcceptance,
+    adminView,
+  };
 };

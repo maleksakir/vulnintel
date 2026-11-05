@@ -86,6 +86,37 @@
   </header>
 
   <!--
+    Priority & exploitation intelligence — the "what do I do about this" panel.
+    This is the synthesis a raw CVE database (NVD) doesn't give you: a single
+    deterministic verdict fusing active-exploitation (KEV), exploit
+    probability (EPSS) and intrinsic severity (CVSS), with the reasoning shown.
+  -->
+  {#if data.priority}
+    {@const p = data.priority}
+    <section class="intel" aria-label="Priority and exploitation intelligence">
+      <div class="intel__score intel__score--{p.band.toLowerCase()}">
+        <span class="intel__score-num mono">{p.score}</span>
+        <span class="intel__score-band">{p.band}</span>
+      </div>
+      <div class="intel__body">
+        <h2 class="intel__heading">Priority Assessment</h2>
+        <p class="intel__rationale">{p.rationale}</p>
+        <div class="intel__signals">
+          <span class="intel__signal intel__signal--{data.detail.state.kevListed ? 'on' : 'off'}">
+            {data.detail.state.kevListed ? '● ' : '○ '}Active exploitation (KEV)
+          </span>
+          <span class="intel__signal intel__signal--{(data.detail.state.epssPercentile ?? 0) >= 0.5 ? 'on' : 'off'}">
+            {(data.detail.state.epssPercentile ?? 0) >= 0.5 ? '● ' : '○ '}Exploit probability{data.detail.state.epssPercentile !== null ? ` (${(data.detail.state.epssPercentile * 100).toFixed(0)}th pct)` : ''}
+          </span>
+          <span class="intel__signal intel__signal--{data.detail.severity === 'CRITICAL' || data.detail.severity === 'HIGH' ? 'on' : 'off'}">
+            {data.detail.severity === 'CRITICAL' || data.detail.severity === 'HIGH' ? '● ' : '○ '}{data.detail.severity} severity
+          </span>
+        </div>
+      </div>
+    </section>
+  {/if}
+
+  <!--
     Risk acceptance (remediation) — operator-only. The CVE itself is public
     data; our decision to leave it unpatched until a given date is not, so the
     banner and the accept/revoke panel only render for a signed-in operator
@@ -273,6 +304,68 @@
   .cve-cvss { font-size: var(--text-sm); color: var(--color-text-secondary); font-family: var(--font-mono); padding: 0.125rem 0.5rem; background: var(--color-surface-elevated); border: 1px solid var(--color-border-default); border-radius: var(--radius-sm); }
   .badge-kev { font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-wide); text-transform: uppercase; background: var(--color-kev-subtle); color: var(--color-kev-text); border: 1px solid var(--color-kev); padding: 0.1rem 0.5rem; border-radius: var(--radius-sm); font-weight: var(--weight-semibold); box-shadow: var(--glow-critical); }
   .cve-dates { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0; }
+
+  /* Priority & exploitation intelligence panel */
+  .intel {
+    display: flex;
+    gap: var(--space-5);
+    align-items: stretch;
+    margin-block-end: var(--space-8);
+    padding: var(--space-4);
+    border: 1px solid var(--color-border-default);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(120% 140% at 0% 0%, var(--color-brand-subtle) 0%, transparent 50%),
+      var(--color-surface-raised);
+  }
+  .intel__score {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 7rem;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--color-border-strong);
+    background: var(--color-surface-sunken);
+  }
+  .intel__score-num { font-size: var(--text-4xl); font-weight: var(--weight-bold); line-height: 1; }
+  .intel__score-band {
+    margin-top: var(--space-1);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+  }
+  .intel__score--critical { border-color: var(--color-critical-border); }
+  .intel__score--critical .intel__score-num, .intel__score--critical .intel__score-band { color: var(--color-critical-text); }
+  .intel__score--critical { box-shadow: var(--glow-critical); }
+  .intel__score--high { border-color: var(--color-high-border); }
+  .intel__score--high .intel__score-num, .intel__score--high .intel__score-band { color: var(--color-high-text); }
+  .intel__score--moderate { border-color: var(--color-medium-border); }
+  .intel__score--moderate .intel__score-num, .intel__score--moderate .intel__score-band { color: var(--color-medium-text); }
+  .intel__score--low { border-color: var(--color-low-border); }
+  .intel__score--low .intel__score-num, .intel__score--low .intel__score-band { color: var(--color-low-text); }
+
+  .intel__body { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; }
+  .intel__heading {
+    margin: 0 0 var(--space-1);
+    font-family: var(--font-mono);
+    font-size: var(--text-2xs);
+    letter-spacing: var(--tracking-caps);
+    text-transform: uppercase;
+    color: var(--color-text-tertiary);
+  }
+  .intel__rationale { margin: 0 0 var(--space-3); font-size: var(--text-base); color: var(--color-text-primary); line-height: var(--leading-snug); }
+  .intel__signals { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
+  .intel__signal { font-family: var(--font-mono); font-size: var(--text-xs); }
+  .intel__signal--on { color: var(--color-brand-text); }
+  .intel__signal--off { color: var(--color-text-tertiary); }
+
+  @media (max-width: 560px) {
+    .intel { flex-direction: column; gap: var(--space-3); }
+    .intel__score { width: 100%; flex-direction: row; gap: var(--space-3); padding: var(--space-3); }
+  }
 
   .cve-section { margin-block-end: var(--space-8); }
   .section-title { font-size: var(--text-xs); font-weight: var(--weight-semibold); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0 0 var(--space-4); }

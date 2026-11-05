@@ -1,6 +1,6 @@
 import type { WatchlistMatch } from '@threat-lens/contracts';
 import { describe, expect, it } from 'vitest';
-import { computePriority, withPriority } from '../src/lib/server/priority';
+import { computePriority, cveToScoringFields, withPriority } from '../src/lib/server/priority';
 
 // Pure deterministic priority scoring — no bindings, no AI, no I/O.
 
@@ -104,5 +104,35 @@ describe('computePriority', () => {
     const enriched = withPriority(base);
     expect(enriched.priorityScore).toBeNull();
     expect(enriched.priorityBand).toBeNull();
+  });
+});
+
+describe('cveToScoringFields (CVE-detail → priority)', () => {
+  // The CVE detail page scores with the SAME engine as the watchlist Priority
+  // column, via this adapter. Pin that the mapping is faithful and the result
+  // matches what the watchlist path would produce for the same CVE.
+  it('maps a CVE detail into scoring fields and scores identically to a match', () => {
+    const detail = {
+      severity: 'CRITICAL' as const,
+      cvss: { base: 9.8 },
+      state: { kevListed: true, epssPercentile: 0.97 },
+    };
+    const fromDetail = computePriority(cveToScoringFields(detail));
+    const fromMatch = computePriority(
+      f({ kevListed: true, epssPercentile: 0.97, cvssBase: 9.8, severity: 'CRITICAL' }),
+    );
+    expect(fromDetail).toEqual(fromMatch);
+    expect(fromDetail!.band).toBe('CRITICAL');
+  });
+
+  it('handles a CVE with no CVSS block (cvss null → cvssBase null)', () => {
+    const detail = {
+      severity: 'MEDIUM' as const,
+      cvss: null,
+      state: { kevListed: false, epssPercentile: 0.1 },
+    };
+    const p = computePriority(cveToScoringFields(detail));
+    expect(p).not.toBeNull();
+    expect(p!.rationale).not.toContain('CVSS');
   });
 });

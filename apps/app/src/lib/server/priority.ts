@@ -27,6 +27,19 @@ const EPSS_WEIGHT = 30;
 const CVSS_WEIGHT = 25;
 const SEVERITY_FLOOR_WEIGHT = 5; // ensures a CRITICAL with no EPSS data still ranks
 
+/**
+ * The minimal field set the score needs. A WatchlistMatch satisfies this, and
+ * so does a CVE detail (via `cveToScoringFields`), so the one engine drives
+ * both the watchlist Priority column and the CVE-detail intelligence panel —
+ * no second, drifting copy of the model.
+ */
+export interface PriorityScoringFields {
+  kevListed: boolean;
+  epssPercentile: number | null;
+  cvssBase: number | null;
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' | null;
+}
+
 type MatchScoringFields = Pick<
   WatchlistMatch,
   'kevListed' | 'epssPercentile' | 'cvssBase' | 'severity'
@@ -36,7 +49,7 @@ type MatchScoringFields = Pick<
  * Compute the deterministic priority. Returns null only when there is no
  * underlying CVE data to score (an aged-out match whose CVE was hard-deleted).
  */
-export function computePriority(m: MatchScoringFields): PriorityResult | null {
+export function computePriority(m: PriorityScoringFields): PriorityResult | null {
   // No CVE row behind the match (aged out) → nothing to score. We detect this
   // the same way the read layer does: a match with no severity AND no cvss AND
   // not KEV AND no EPSS is an orphaned (aged-out) match.
@@ -104,5 +117,24 @@ export function withPriority(m: WatchlistMatch): WatchlistMatch {
     priorityScore: p?.score ?? null,
     priorityBand: p?.band ?? null,
     priorityRationale: p?.rationale ?? null,
+  };
+}
+
+/**
+ * Adapt a CVE-detail record's fields to the scoring shape, so the CVE detail
+ * page can show the same priority the watchlist Priority column uses — the
+ * "what do I fix first, and why" signal, on the page a researcher actually
+ * lands on from a search.
+ */
+export function cveToScoringFields(detail: {
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+  cvss: { base: number } | null;
+  state: { kevListed: boolean; epssPercentile: number | null };
+}): PriorityScoringFields {
+  return {
+    kevListed: detail.state.kevListed,
+    epssPercentile: detail.state.epssPercentile,
+    cvssBase: detail.cvss?.base ?? null,
+    severity: detail.severity,
   };
 }

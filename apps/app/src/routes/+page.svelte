@@ -171,18 +171,22 @@
         <h2 id="chart-vendors-heading" class="cmd-panel__label">Top Vendors — Exposure</h2>
       </header>
       <div class="cmd-panel__body">
-      <ol class="vendor-list">
-        {#each data.series.topVendors.slice(0, 10) as row, i}
-          <li class="vendor-row">
-            <span class="vendor-rank mono">{String(i + 1).padStart(2, '0')}</span>
-            <a href="/affected-products?vendor={encodeURIComponent(row.vendor)}" class="vendor-name">{row.vendor}</a>
-            <span class="vendor-count mono">{fmt(row.cveCount)}</span>
-            {#if row.kevCount > 0}
-              <span class="vendor-kev-badge">KEV {row.kevCount}</span>
-            {/if}
-          </li>
-        {/each}
-      </ol>
+      {#if data.series.topVendors.length > 0}
+        <ol class="vendor-list">
+          {#each data.series.topVendors.slice(0, 10) as row, i}
+            <li class="vendor-row">
+              <span class="vendor-rank mono">{String(i + 1).padStart(2, '0')}</span>
+              <a href="/affected-products?vendor={encodeURIComponent(row.vendor)}" class="vendor-name">{row.vendor}</a>
+              <span class="vendor-count mono">{fmt(row.cveCount)}</span>
+              {#if row.kevCount > 0}
+                <span class="vendor-kev-badge">KEV {row.kevCount}</span>
+              {/if}
+            </li>
+          {/each}
+        </ol>
+      {:else}
+        <p class="chart-empty">No vendor exposure in the last 90 days. <a href="/affected-products">Browse the full product matrix →</a></p>
+      {/if}
       </div>
     </section>
     <!-- KEV inflow -->
@@ -313,7 +317,12 @@
     display: grid; grid-template-columns: 1fr 1fr;
     gap: var(--layout-card-gap); margin-block-end: var(--layout-section-gap);
   }
-  .chart-empty { font-size: var(--text-sm); color: var(--color-text-tertiary); }
+  .chart-empty {
+    display: flex; align-items: center; justify-content: center;
+    min-height: 140px; margin: 0; padding: var(--space-4);
+    text-align: center; font-size: var(--text-sm); color: var(--color-text-tertiary);
+  }
+  .chart-empty a { color: var(--color-brand-text); }
 
   .vendor-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   .vendor-row {

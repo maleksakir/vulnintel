@@ -90,9 +90,12 @@
   }
 
   .error-status {
+    font-family: var(--font-mono);
     font-size: var(--text-5xl);
     font-weight: var(--weight-bold);
-    color: var(--color-border-subtle);
+    color: var(--color-brand-text);
+    opacity: 0.85;
+    text-shadow: var(--glow-text-accent);
     line-height: var(--leading-none);
     margin-block-end: var(--space-4);
   }
