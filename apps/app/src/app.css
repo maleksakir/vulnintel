@@ -538,14 +538,14 @@ html {
 body {
   min-height: 100vh;
   min-height: 100dvh; /* dynamic viewport on mobile browsers */
-  /* Sticky-footer column: header / main / footer are DIRECT flex children of
-     <body> (app.html injects %sveltekit.body% straight into body, no
-     display:contents wrapper), and .site-main (flex:1) absorbs the leftover
-     height — so the footer sits at the bottom on short pages with no blank
-     band beneath it. */
-  display: flex;
-  flex-direction: column;
 }
+
+/* The sticky-footer flex column lives on .app-shell (routes/+layout.svelte),
+   a div we own — NOT on <body>. SvelteKit and libraries (LayerChart tooltips,
+   the toast region) portal elements directly into <body> at runtime; if <body>
+   were the flex column, those appended siblings would become flex children and
+   open a blank band below the footer. Keeping the column on .app-shell makes
+   the footer anchoring immune to whatever gets portalled into body. */
 
 /* Anchor base */
 a {

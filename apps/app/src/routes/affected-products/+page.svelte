@@ -10,6 +10,18 @@
   let { data }: Props = $props();
 
   const filtered = $derived(Boolean(data.vendor || data.product));
+  // Drill-down is active when a specific vendor+product was requested.
+  const drillDown = $derived(Boolean(data.vendor && data.product));
+
+  // Drill-down summary stats (distinct CVEs / KEV across all version groups).
+  const vstats = $derived.by(() => {
+    const vs = data.versions?.versions ?? [];
+    return {
+      groups: vs.length,
+      cves: vs.reduce((n, v) => n + v.cveCount, 0),
+      kev: vs.reduce((n, v) => n + v.kevCount, 0),
+    };
+  });
 
   function isoToDate(iso: string) {
     return new Date(iso).toLocaleDateString(undefined, { dateStyle: 'medium' });
@@ -56,13 +68,27 @@
     {/if}
   </form>
 
-  {#if data.versions && data.versions.versions.length > 0}
+  {#if drillDown}
     <!-- Version drill-down: vendor → product → version. Shown when a specific
          vendor + product are selected. -->
     <section class="versions" aria-label="Affected versions">
-      <h2 class="versions__title">
-        Affected versions of <span class="vp">{data.versions.vendor} / {data.versions.product}</span>
-      </h2>
+      <header class="versions__head">
+        <div>
+          <p class="versions__eyebrow">VERSION BREAKDOWN</p>
+          <h2 class="versions__title">
+            <span class="vp">{data.vendor} / {data.product}</span>
+          </h2>
+        </div>
+        <a class="versions__back" href="/affected-products">← All products</a>
+      </header>
+
+      {#if data.versions && data.versions.versions.length > 0}
+      <dl class="versions__stats" aria-label="Breakdown summary">
+        <div class="vstat"><dt>Version groups</dt><dd class="mono">{vstats.groups.toLocaleString()}</dd></div>
+        <div class="vstat"><dt>Affected CVEs</dt><dd class="mono">{vstats.cves.toLocaleString()}</dd></div>
+        <div class="vstat vstat--kev"><dt>KEV</dt><dd class="mono">{vstats.kev.toLocaleString()}</dd></div>
+      </dl>
+
       <div class="data-grid__wrap">
         <table class="data-grid">
           <thead>
@@ -99,6 +125,12 @@
           </tbody>
         </table>
       </div>
+      {:else}
+        <p class="versions__empty">
+          No CPE-level version data recorded for this product. It may be named in CVEs only by
+          vendor/product without discrete version configurations.
+        </p>
+      {/if}
     </section>
   {/if}
 
@@ -240,13 +272,37 @@
       radial-gradient(120% 140% at 0% 0%, var(--color-brand-subtle) 0%, transparent 55%),
       var(--color-surface-raised);
   }
+  .versions__head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: var(--space-4); flex-wrap: wrap; margin-block-end: var(--space-4);
+  }
+  .versions__eyebrow {
+    font-family: var(--font-mono); font-size: var(--text-2xs); letter-spacing: var(--tracking-caps);
+    text-transform: uppercase; color: var(--color-brand-text); margin: 0 0 var(--space-1);
+  }
   .versions__title {
-    font-size: var(--text-sm);
-    font-weight: var(--weight-semibold);
+    font-size: var(--text-lg);
+    font-weight: var(--weight-bold);
     color: var(--color-text-primary);
-    margin: 0 0 var(--space-4);
+    margin: 0;
   }
   .versions__title .vp { font-family: var(--font-mono); color: var(--color-brand-text); }
+  .versions__back {
+    font-family: var(--font-mono); font-size: var(--text-xs); color: var(--color-text-secondary);
+    flex-shrink: 0; align-self: center;
+  }
+  .versions__back:hover { color: var(--color-brand-text); text-decoration: none; }
+  .versions__stats {
+    display: flex; gap: var(--space-6); margin: 0 0 var(--space-4); flex-wrap: wrap;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--color-border-default); border-radius: var(--radius-md);
+    background: var(--color-surface-sunken);
+  }
+  .vstat { display: flex; flex-direction: column; gap: 2px; }
+  .vstat dt { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary); margin: 0; }
+  .vstat dd { font-size: var(--text-xl); font-weight: var(--weight-bold); color: var(--color-text-primary); margin: 0; }
+  .vstat--kev dd { color: var(--color-kev-text); }
+  .versions__empty { font-size: var(--text-sm); color: var(--color-text-tertiary); margin: 0; line-height: var(--leading-snug); }
   .part-chip {
     font-family: var(--font-mono); font-size: var(--text-2xs); text-transform: uppercase;
     letter-spacing: var(--tracking-wide); color: var(--color-text-tertiary);

@@ -84,6 +84,11 @@
 <!-- Skip-link — first focusable element, jumps to #main-content (§2.4) -->
 <a class="skip-link" href="#main-content">Skip to main content</a>
 
+<!-- The app shell is the sticky-footer flex column. It lives on a div I
+     control (not <body>), so any element portalled to <body> at runtime —
+     the toast region, LayerChart's tooltip container — can never become a
+     body flex child and open a blank band below the footer. -->
+<div class="app-shell">
 <header class="site-header">
   <nav class="site-nav" aria-label="Primary navigation">
     <a class="site-nav__logo" href="/" aria-label="Threat-Lens CVE Hub — home">
@@ -177,8 +182,10 @@
     </span>
   </div>
 </footer>
+</div>
 
-<!-- Toast region — anchored bottom-right (§2.4) -->
+<!-- Toast region — anchored bottom-right (§2.4). Outside .app-shell so it
+     never affects the shell's flex layout. -->
 <Toast toasts={toasts} onClose={removeToast} position="bottom-right" />
 
 <style>
@@ -430,15 +437,20 @@
     }
   }
 
+  /* Sticky-footer column lives on .app-shell (a div we own), NOT <body> — so
+     runtime body-level portals (toast, chart tooltips) can't push the footer
+     up or open a blank band below it. */
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+  }
+
   .site-main {
-    /* flex:1 fills the remaining column height so the footer sits at the
-       bottom on short pages (the root flex column is set on <body> in
-       app.css). We intentionally do NOT set a min-height here: the old
-       `min-height: calc(100dvh - nav-height)` made main nearly a full
-       viewport tall on its own, so the footer + its margin were appended
-       BELOW that and overshot the viewport — the blank band under the
-       footer. flex:1 against a 100dvh flex-column body is the correct
-       sticky-footer mechanism. */
+    /* flex:1 absorbs the leftover column height so the footer sits at the
+       bottom on short pages. flex-basis 0 (not auto) so a short page's main
+       doesn't reserve content height first and overshoot. */
     flex: 1 0 auto;
     max-width: calc(var(--layout-content-max) + var(--layout-page-gutter) * 2);
     width: 100%;

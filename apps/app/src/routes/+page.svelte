@@ -37,6 +37,13 @@
   const kevInflow = $derived(fillDailySeries(data.series.kevInflow, data.generatedAt, WINDOW_DAYS));
   const kevInflowTotal = $derived(kevInflow.reduce((sum, d) => sum + d.count, 0));
 
+  // Proportions for the KPI mini-bars (visual context, not new data). Clamped
+  // 0–100. Guard against divide-by-zero on an empty corpus.
+  const total = $derived(Math.max(1, data.kpis.totalCves));
+  const criticalPct = $derived(Math.min(100, (data.kpis.criticalCount / total) * 100));
+  const kevPct = $derived(Math.min(100, (data.kpis.kevCount / total) * 100));
+  const epssPct = $derived(Math.min(100, data.kpis.meanEpssPercentile7d * 100));
+
   // "Warming up": the datastore is reachable (no dataError) but the rollups /
   // daily snapshot aren't populated yet, so every number is zero. Shown as a
   // distinct, calmer notice than the hard "offline" one — this is the
@@ -121,22 +128,26 @@
     <div class="kpi-card boot-in" style="--boot-delay:40ms">
       <span class="kpi-label">Total CVEs</span>
       <span class="kpi-value mono">{fmt(data.kpis.totalCves)}</span>
+      <div class="kpi-bar" aria-hidden="true"><span class="kpi-bar__fill kpi-bar__fill--brand" style="width:100%"></span></div>
       <span class="kpi-meta">tracked in window</span>
     </div>
     <div class="kpi-card kpi-card--critical boot-in" style="--boot-delay:80ms">
       <span class="kpi-label">Critical</span>
       <span class="kpi-value mono">{fmt(data.kpis.criticalCount)}</span>
-      <span class="kpi-meta">severity ≥ 9.0</span>
+      <div class="kpi-bar" aria-hidden="true"><span class="kpi-bar__fill kpi-bar__fill--critical" style="width:{criticalPct}%"></span></div>
+      <span class="kpi-meta">{criticalPct.toFixed(1)}% of tracked · CVSS ≥ 9.0</span>
     </div>
     <div class="kpi-card kpi-card--kev boot-in" style="--boot-delay:120ms">
       <span class="kpi-label">KEV Listed</span>
       <span class="kpi-value mono">{fmt(data.kpis.kevCount)}</span>
-      <span class="kpi-meta">actively exploited</span>
+      <div class="kpi-bar" aria-hidden="true"><span class="kpi-bar__fill kpi-bar__fill--kev" style="width:{Math.max(kevPct, 1.5)}%"></span></div>
+      <span class="kpi-meta">actively exploited in the wild</span>
     </div>
     <div class="kpi-card kpi-card--epss boot-in" style="--boot-delay:160ms">
       <span class="kpi-label">Mean EPSS (7d)</span>
       <span class="kpi-value mono">{pct(data.kpis.meanEpssPercentile7d)}</span>
-      <span class="kpi-meta">exploit probability</span>
+      <div class="kpi-bar" aria-hidden="true"><span class="kpi-bar__fill kpi-bar__fill--epss" style="width:{epssPct}%"></span></div>
+      <span class="kpi-meta">avg exploit probability</span>
     </div>
   </div>
 
@@ -345,6 +356,29 @@
   .kpi-card--critical .kpi-value { color: var(--color-critical-text); }
   .kpi-card--kev .kpi-value { color: var(--color-kev-text); }
   .kpi-card--epss .kpi-value { color: var(--color-epss-text); }
+
+  /* Mini proportion bar — a thin viz under each KPI number for visual context
+     (critical/KEV share of the corpus, mean EPSS as a gauge). */
+  .kpi-bar {
+    height: 3px;
+    border-radius: var(--radius-full);
+    background: var(--color-surface-sunken);
+    overflow: hidden;
+  }
+  .kpi-bar__fill {
+    display: block;
+    height: 100%;
+    border-radius: var(--radius-full);
+    transform-origin: left;
+    animation: kpi-bar-grow var(--duration-slow, 600ms) var(--ease-out) both;
+  }
+  .kpi-bar__fill--brand    { background: var(--color-brand-default); }
+  .kpi-bar__fill--critical { background: var(--color-critical); }
+  .kpi-bar__fill--kev      { background: var(--color-kev); }
+  .kpi-bar__fill--epss     { background: var(--color-epss); }
+  @keyframes kpi-bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+  @media (prefers-reduced-motion: reduce) { .kpi-bar__fill { animation: none; } }
+
   .kpi-meta {
     font-size: var(--text-2xs); color: var(--color-text-tertiary);
     text-transform: uppercase; letter-spacing: var(--tracking-wide);
