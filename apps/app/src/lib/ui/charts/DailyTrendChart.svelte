@@ -56,6 +56,7 @@
     xScale={scaleUtc()}
     {series}
     {padding}
+    highlight={{ area: false }}
     props={{
       xAxis: { ticks: ticks.map((t) => t.date), format: formatShortDay },
       yAxis,
@@ -73,6 +74,7 @@
     {series}
     bandPadding={0.25}
     {padding}
+    highlight={{ area: false }}
     props={{
       bars: { radius: 1, stroke: 'none', strokeWidth: 0 },
       xAxis: { ticks: ticks.map((t) => t.day), format: formatShortDay },

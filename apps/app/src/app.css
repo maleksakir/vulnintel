@@ -484,7 +484,7 @@ h6 {
   /* ── 9. Layout Geometry ───────────────────────────────────────────────── */
   --layout-nav-height:    3.5rem;    /* 56px  — top navigation bar */
   --layout-sidebar-width: 17.5rem;  /* 280px — filter rail on /search */
-  --layout-content-max:   60rem;    /* 960px — max-width for single-column views like /cve/[id] */
+  --layout-content-max:   82rem;    /* 1312px — shell max-width. Multi-column views (dashboard, search, tables) fill this; reading-oriented single-column pages (/cve/[id], forms) set their own tighter inner max so they stay narrow and legible on wide monitors. */
   --layout-page-gutter:   1.5rem;   /* 24px  — horizontal page padding */
   --layout-section-gap:   2rem;     /* 32px  — vertical gap between major sections */
   --layout-card-gap:      1.5rem;   /* 24px  — gap inside a grid of cards */

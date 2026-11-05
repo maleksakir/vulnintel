@@ -857,7 +857,10 @@ function emitAnalytics(
   isRetry: boolean,
   t0: number,
   kevListed: boolean,
-  epssScore: number | null,
+  // Kept in the signature for call-site symmetry with epssPercentile, but the
+  // analytics point only records the percentile — underscore marks it as
+  // intentionally unused (biome noUnusedFunctionParameters).
+  _epssScore: number | null,
   epssPercentile: number | null,
 ): void {
   env.ANALYTICS.writeDataPoint({

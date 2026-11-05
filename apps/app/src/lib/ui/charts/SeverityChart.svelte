@@ -40,6 +40,7 @@
   bandPadding={0.3}
   axis="y"
   grid={false}
+  highlight={{ area: false }}
   padding={{ top: 4, right: 52, bottom: 4, left: 56 }}
   props={{ bars: { radius: 3, stroke: 'none', strokeWidth: 0 }, yAxis: { tickMarks: false } }}
   {height}

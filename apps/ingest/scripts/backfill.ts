@@ -370,7 +370,7 @@ function decodeCpe(s: string): string {
   return s.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
 }
 
-function cvssToSeverity(base: number | null, version: string | null): Severity {
+function cvssToSeverity(base: number | null, _version: string | null): Severity {
   if (base === null) return 'NONE';
   if (base === 0) return 'NONE';
   if (base < 4.0) return 'LOW';

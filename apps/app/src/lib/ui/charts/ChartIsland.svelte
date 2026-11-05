@@ -83,7 +83,15 @@
   .chart-island__plot {
     position: relative;
     width: 100%;
+    /* Hard-clip the plot to its declared height. LayerChart's band-scale
+       BarChart (KEV panel) was painting a highlight/overlay <rect> that
+       escaped the card as a large dark block in light theme; clipping
+       guarantees nothing renders outside the fixed-height box regardless of
+       what the library's internal layers do. */
+    overflow: hidden;
   }
+
+
 
   .chart-island__skeleton {
     width: 100%;
