@@ -301,10 +301,10 @@
 <script module>
   function formatRange(cpe: { versionStartIncluding?: string | null; versionStartExcluding?: string | null; versionEndIncluding?: string | null; versionEndExcluding?: string | null }): string {
     const parts: string[] = [];
-    if (cpe.versionStartIncluding) parts.push('>=' + cpe.versionStartIncluding);
-    if (cpe.versionStartExcluding) parts.push('>' + cpe.versionStartExcluding);
-    if (cpe.versionEndIncluding) parts.push('<=' + cpe.versionEndIncluding);
-    if (cpe.versionEndExcluding) parts.push('<' + cpe.versionEndExcluding);
+    if (cpe.versionStartIncluding) parts.push(`>=${cpe.versionStartIncluding}`);
+    if (cpe.versionStartExcluding) parts.push(`>${cpe.versionStartExcluding}`);
+    if (cpe.versionEndIncluding) parts.push(`<=${cpe.versionEndIncluding}`);
+    if (cpe.versionEndExcluding) parts.push(`<${cpe.versionEndExcluding}`);
     return parts.join(', ') || '*';
   }
 </script>

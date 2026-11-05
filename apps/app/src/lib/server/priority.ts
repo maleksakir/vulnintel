@@ -1,10 +1,7 @@
-import type { WatchlistMatch } from '@threat-lens/contracts';
-
-// Deterministic triage priority for a watchlist match. Pure, zero AI, zero
-// neuron cost — computed at read time from fields already fetched for the
-// match. Advisory only: it RANKS matches so the most actionable surface
-// first, it never auto-triages (that stays a human decision via the status
-// pipeline).
+// Deterministic triage priority for a CVE. Pure, zero AI, zero neuron cost —
+// computed at read time from fields already fetched. Advisory only: it RANKS
+// CVEs so the most actionable surface first. Drives the CVE-detail
+// intelligence panel (via cveToScoringFields + computePriority).
 //
 // The model is intentionally simple and explainable (the "rationale" is just
 // the factors that fired), mirroring how SOC teams actually prioritise:
@@ -28,10 +25,8 @@ const CVSS_WEIGHT = 25;
 const SEVERITY_FLOOR_WEIGHT = 5; // ensures a CRITICAL with no EPSS data still ranks
 
 /**
- * The minimal field set the score needs. A WatchlistMatch satisfies this, and
- * so does a CVE detail (via `cveToScoringFields`), so the one engine drives
- * both the watchlist Priority column and the CVE-detail intelligence panel —
- * no second, drifting copy of the model.
+ * The minimal field set the score needs. A CVE detail satisfies this via
+ * `cveToScoringFields`.
  */
 export interface PriorityScoringFields {
   kevListed: boolean;
@@ -39,20 +34,6 @@ export interface PriorityScoringFields {
   cvssBase: number | null;
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE' | null;
 }
-
-// Compile-time assertion that a WatchlistMatch's relevant fields structurally
-// satisfy PriorityScoringFields, so `computePriority(match)` stays type-safe
-// without an adapter. If WatchlistMatch's severity/epss/cvss/kev shapes ever
-// drift from the scoring contract, this line fails the build.
-type _MatchSatisfiesScoring =
-  Pick<
-    WatchlistMatch,
-    'kevListed' | 'epssPercentile' | 'cvssBase' | 'severity'
-  > extends PriorityScoringFields
-    ? true
-    : never;
-const _matchSatisfiesScoring: _MatchSatisfiesScoring = true;
-void _matchSatisfiesScoring;
 
 /**
  * Compute the deterministic priority. Returns null only when there is no
@@ -118,22 +99,10 @@ function bandFor(score: number, kevListed: boolean): PriorityBand {
   return 'LOW';
 }
 
-/** Enrich a WatchlistMatch with its computed priority fields. */
-export function withPriority(m: WatchlistMatch): WatchlistMatch {
-  const p = computePriority(m);
-  return {
-    ...m,
-    priorityScore: p?.score ?? null,
-    priorityBand: p?.band ?? null,
-    priorityRationale: p?.rationale ?? null,
-  };
-}
-
 /**
  * Adapt a CVE-detail record's fields to the scoring shape, so the CVE detail
- * page can show the same priority the watchlist Priority column uses — the
- * "what do I fix first, and why" signal, on the page a researcher actually
- * lands on from a search.
+ * page can show its priority — the "what do I fix first, and why" signal, on
+ * the page a researcher lands on from a search.
  */
 export function cveToScoringFields(detail: {
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';

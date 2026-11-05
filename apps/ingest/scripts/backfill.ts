@@ -187,7 +187,7 @@ export async function run(env: Env): Promise<void> {
   await env.CACHE.delete(CHECKPOINT_KEY);
 
   // ── KEV overlay ─────────────────────────────────────────────────────────────
-  if (!process.env['SKIP_KEV']) {
+  if (!process.env.SKIP_KEV) {
     console.log('[backfill] Applying KEV overlay…');
     let kevOk = 0;
     let kevFail = 0;
@@ -209,7 +209,7 @@ export async function run(env: Env): Promise<void> {
   }
 
   // ── EPSS overlay ─────────────────────────────────────────────────────────────
-  if (!process.env['SKIP_EPSS']) {
+  if (!process.env.SKIP_EPSS) {
     console.log('[backfill] Applying EPSS overlay…');
     let epssOk = 0;
     let epssFail = 0;

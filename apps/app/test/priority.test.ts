@@ -1,12 +1,13 @@
-import type { WatchlistMatch } from '@threat-lens/contracts';
 import { describe, expect, it } from 'vitest';
-import { computePriority, cveToScoringFields, withPriority } from '../src/lib/server/priority';
+import {
+  computePriority,
+  cveToScoringFields,
+  type PriorityScoringFields,
+} from '../src/lib/server/priority';
 
 // Pure deterministic priority scoring — no bindings, no AI, no I/O.
 
-type Fields = Pick<WatchlistMatch, 'kevListed' | 'epssPercentile' | 'cvssBase' | 'severity'>;
-
-function f(partial: Partial<Fields>): Fields {
+function f(partial: Partial<PriorityScoringFields>): PriorityScoringFields {
   return {
     kevListed: false,
     epssPercentile: null,
@@ -63,52 +64,25 @@ describe('computePriority', () => {
     expect(hi.score).toBeGreaterThan(lo.score);
   });
 
-  it('withPriority fills the three contract fields', () => {
-    const base: WatchlistMatch = {
-      cveId: 'CVE-2026-0001',
-      status: 'NEW',
-      note: null,
-      firstMatchedAt: new Date().toISOString(),
-      statusUpdatedAt: new Date().toISOString(),
-      severity: 'CRITICAL',
-      cvssBase: 9.8,
-      kevListed: true,
-      epssPercentile: 0.95,
-      priorityScore: null,
-      priorityBand: null,
-      priorityRationale: null,
-    };
-    const enriched = withPriority(base);
-    expect(enriched.priorityScore).toBeGreaterThan(0);
-    expect(enriched.priorityBand).not.toBeNull();
-    expect(enriched.priorityRationale).toBeTruthy();
+  it('a KEV-listed critical scores high and non-null', () => {
+    const p = computePriority(
+      f({ severity: 'CRITICAL', cvssBase: 9.8, kevListed: true, epssPercentile: 0.95 }),
+    );
+    expect(p).not.toBeNull();
+    expect(p!.score).toBeGreaterThan(0);
+    expect(p!.band).not.toBeNull();
+    expect(p!.rationale).toBeTruthy();
   });
 
-  it('withPriority leaves an aged-out match null', () => {
-    const base: WatchlistMatch = {
-      cveId: 'CVE-2020-0001',
-      status: 'ACKNOWLEDGED',
-      note: null,
-      firstMatchedAt: new Date().toISOString(),
-      statusUpdatedAt: new Date().toISOString(),
-      severity: null,
-      cvssBase: null,
-      kevListed: false,
-      epssPercentile: null,
-      priorityScore: null,
-      priorityBand: null,
-      priorityRationale: null,
-    };
-    const enriched = withPriority(base);
-    expect(enriched.priorityScore).toBeNull();
-    expect(enriched.priorityBand).toBeNull();
+  it('an aged-out CVE (no data) scores null', () => {
+    const p = computePriority(f({}));
+    expect(p).toBeNull();
   });
 });
 
 describe('cveToScoringFields (CVE-detail → priority)', () => {
-  // The CVE detail page scores with the SAME engine as the watchlist Priority
-  // column, via this adapter. Pin that the mapping is faithful and the result
-  // matches what the watchlist path would produce for the same CVE.
+  // The CVE detail page scores with this adapter. Pin that the mapping is
+  // faithful and matches a direct scoring-fields call for the same CVE.
   it('maps a CVE detail into scoring fields and scores identically to a match', () => {
     const detail = {
       severity: 'CRITICAL' as const,

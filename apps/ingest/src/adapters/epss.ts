@@ -40,7 +40,7 @@ export async function* fetchEpssCsv(): AsyncGenerator<EpssPatch> {
       // #model_version:...,score_date:2024-01-01T00:00:00+0000
       if (line.startsWith('#')) {
         const m = /score_date:(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/.exec(line);
-        if (m?.[1]) scoreDate = new Date(m[1] + 'Z').getTime();
+        if (m?.[1]) scoreDate = new Date(`${m[1]}Z`).getTime();
         continue;
       }
 
@@ -52,7 +52,8 @@ export async function* fetchEpssCsv(): AsyncGenerator<EpssPatch> {
       const epssScore = parseFloat(cols[1] ?? '');
       const epssPercentile = parseFloat(cols[2] ?? '');
 
-      if (!cveId?.startsWith('CVE-') || isNaN(epssScore) || isNaN(epssPercentile)) continue;
+      if (!cveId?.startsWith('CVE-') || Number.isNaN(epssScore) || Number.isNaN(epssPercentile))
+        continue;
 
       yield {
         cveId,
@@ -69,7 +70,7 @@ export async function* fetchEpssCsv(): AsyncGenerator<EpssPatch> {
     const cveId = cols[0]?.trim();
     const epssScore = parseFloat(cols[1] ?? '');
     const epssPercentile = parseFloat(cols[2] ?? '');
-    if (cveId?.startsWith('CVE-') && !isNaN(epssScore) && !isNaN(epssPercentile)) {
+    if (cveId?.startsWith('CVE-') && !Number.isNaN(epssScore) && !Number.isNaN(epssPercentile)) {
       yield {
         cveId,
         epssScore,
@@ -83,5 +84,5 @@ export async function* fetchEpssCsv(): AsyncGenerator<EpssPatch> {
 function parseScoreDate(header: string | null): number {
   if (!header) return Date.now();
   const d = new Date(header);
-  return isNaN(d.getTime()) ? Date.now() : d.getTime();
+  return Number.isNaN(d.getTime()) ? Date.now() : d.getTime();
 }

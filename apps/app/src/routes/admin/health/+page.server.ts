@@ -31,7 +31,7 @@ export const load: PageServerLoad = async ({ url, platform, cookies }) => {
   // An unset/empty ADMIN_BEARER (e.g. a staging deploy with no secret
   // configured) must fail CLOSED — without this check, an empty session
   // cookie compares equal to an empty secret and every visitor is "authed".
-  if (!env || !env.ADMIN_BEARER) return { health: null as HealthResponse | null, authed: false };
+  if (!env?.ADMIN_BEARER) return { health: null as HealthResponse | null, authed: false };
 
   const urlToken = url.searchParams.get('token');
   if (urlToken !== null) {

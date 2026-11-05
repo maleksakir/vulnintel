@@ -526,11 +526,11 @@ html {
 body {
   min-height: 100vh;
   min-height: 100dvh; /* dynamic viewport on mobile browsers */
-  /* Sticky-footer column: header / main / footer stack vertically and
-     .site-main (flex:1) absorbs the leftover height, so the footer sits at
-     the bottom of the viewport on short pages with no blank band beneath it.
-     The SvelteKit body wrapper is `display:contents` (app.html), so these
-     flex children resolve to the real header/main/footer. */
+  /* Sticky-footer column: header / main / footer are DIRECT flex children of
+     <body> (app.html injects %sveltekit.body% straight into body, no
+     display:contents wrapper), and .site-main (flex:1) absorbs the leftover
+     height — so the footer sits at the bottom on short pages with no blank
+     band beneath it. */
   display: flex;
   flex-direction: column;
 }

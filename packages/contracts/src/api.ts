@@ -13,7 +13,6 @@ import type { ExploitMaturity, ExploitReference, IngestSource, Severity } from '
 export type ErrorCode =
   | 'VALIDATION_ERROR'
   | 'CVE_NOT_FOUND'
-  | 'WATCHLIST_NOT_FOUND'
   | 'UNAUTHORIZED'
   | 'RATE_LIMITED'
   | 'GLOBAL_QUOTA_EXHAUSTED'

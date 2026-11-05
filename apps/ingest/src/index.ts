@@ -5,7 +5,6 @@ import type {
   MitreCweQueueMessage,
   NvdQueueMessage,
   RetryMessage,
-  WatchlistQueueMessage,
 } from '@threat-lens/contracts';
 import { processRecord } from './lib/server/processRecord';
 import { runAgingSweep } from './pipelines/aging';
@@ -19,7 +18,6 @@ import { runMitreCweConsumer } from './pipelines/mitreQueue';
 import { runNvdConsumer } from './pipelines/nvdQueue';
 import { isValidOsvQueueMessage, runOsvDiscovery, runOsvFetchBatch } from './pipelines/osv';
 import { runWeeklyReconciliation } from './pipelines/reconcile';
-import { runWatchlistConsumer } from './pipelines/watchlistQueue';
 import type { Env } from './types';
 
 export default {
@@ -121,18 +119,6 @@ export default {
       for (const msg of batch.messages) {
         try {
           await runKevConsumer(msg.body as KevQueueMessage, env, ctx);
-          msg.ack();
-        } catch {
-          msg.retry();
-        }
-      }
-      return;
-    }
-
-    if (batch.queue.startsWith('watchlist-ingest')) {
-      for (const msg of batch.messages) {
-        try {
-          await runWatchlistConsumer(msg.body as WatchlistQueueMessage, env, ctx);
           msg.ack();
         } catch {
           msg.retry();

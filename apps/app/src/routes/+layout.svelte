@@ -57,7 +57,6 @@
     },
     { href: '/threat-intel', label: 'Threat Intel', match: (p: string) => p.startsWith('/threat-intel') },
     { href: '/sbom', label: 'SBOM Scan', match: (p: string) => p.startsWith('/sbom') },
-    { href: '/watchlists', label: 'Watchlists', match: (p: string) => p.startsWith('/watchlists') },
   ];
 
   // --- Toast region (§2.4) ---

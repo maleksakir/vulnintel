@@ -71,20 +71,3 @@ export type {
   SbomMatchVia,
   SbomScanResponse,
 } from './sbom.js';
-export type {
-  CreateSubscriptionRequest,
-  CreateWatchlistRequest,
-  CreateWebhookRequest,
-  UpdateMatchRequest,
-  UpdateWatchlistRequest,
-  WatchlistDetailResponse,
-  WatchlistListResponse,
-  WatchlistMatch,
-  WatchlistMatchCounts,
-  WatchlistMatchStatus,
-  WatchlistQueueMessage,
-  WatchlistSubscription,
-  WatchlistSummary,
-  WatchlistWebhook,
-} from './watchlist.js';
-export { WATCHLIST_TERMINAL_STATUSES } from './watchlist.js';

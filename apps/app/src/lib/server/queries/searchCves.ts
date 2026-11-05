@@ -274,9 +274,9 @@ async function fetchVendors(ids: string[], db: D1Database): Promise<Map<string, 
 function buildVecFilter(filters?: SearchFilters): VecFilter | undefined {
   if (!filters) return undefined;
   const f: VecFilter = {};
-  if (filters.severity?.length) f['severity'] = { $in: filters.severity };
-  if (filters.kev === true) f['kev_listed'] = { $eq: 1 };
-  if (filters.minCvss !== undefined) f['cvss_base'] = { $gte: filters.minCvss };
+  if (filters.severity?.length) f.severity = { $in: filters.severity };
+  if (filters.kev === true) f.kev_listed = { $eq: 1 };
+  if (filters.minCvss !== undefined) f.cvss_base = { $gte: filters.minCvss };
   return Object.keys(f).length > 0 ? f : undefined;
 }
 
